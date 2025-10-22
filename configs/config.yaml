@@ -1,0 +1,16 @@
+# Local: rps-maestro/configs/config.yaml
+server:
+  port: 8000
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "user"
+  password: "password"
+  dbname: "maestro_db"
+
+rabbitmq:
+  host: "rabbitmq"
+  port: 5672
+  user: "guest"
+  password: "guest"

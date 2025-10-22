@@ -1,0 +1,45 @@
+# docker-compose.yml
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: maestro_postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: maestro_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: maestro_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  maestro-backend:
+    container_name: maestro_backend
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - MAESTRO_SERVER_PORT=8000
+      - MAESTRO_DB_HOST=postgres
+      - MAESTRO_DB_USER=user
+      - MAESTRO_DB_PASSWORD=${MAESTRO_DATABASE_PASSWORD:-password}
+      - MAESTRO_DB_NAME=maestro_db
+    depends_on:
+      - postgres
+      - rabbitmq
+
+volumes:
+  postgres_data:
