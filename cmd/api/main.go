@@ -2,10 +2,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
 	"github.com/EnzzoHosaki/rps-maestro/internal/config"
+	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
 )
 
@@ -24,9 +26,27 @@ func main() {
 	}
 	defer repo.Close()
 
-	fmt.Println("Porta do servidor:", cfg.Server.Port)
-	fmt.Println("Host do banco de dados:", cfg.Database.Host)
-	fmt.Println("Senha do banco de dados usada:", cfg.Database.Password)
+	fmt.Println("Conexão com o PostgreSQL estabelecida com sucesso!")
 
-    fmt.Println("Aplicação iniciada. (Encerrando por enquanto)")
+	ctx := context.Background()
+
+	novoUtilizador := &models.User{
+		Name:         "Utilizador Teste",
+		Email:        "teste@rpscontabilidade.com.br",
+		PasswordHash: "senha_insegura_hash_temporario",
+		Role:         "admin",
+	}
+
+	err = repo.Create(ctx, novoUtilizador)
+	if err != nil {
+		log.Printf("ERRO ao criar utilizador: %v", err)
+	} else {
+		fmt.Printf("Utilizador criado com sucesso! ID: %d, Email: %s, Criado em: %s\n",
+			novoUtilizador.ID,
+			novoUtilizador.Email,
+			novoUtilizador.CreatedAt.Format("2006-01-02 15:04:05"),
+		)
+	}
+
+	fmt.Println("Aplicação iniciada e teste concluído. (Encerrando por enquanto)")
 }
