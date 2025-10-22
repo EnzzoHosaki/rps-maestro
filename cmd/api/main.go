@@ -1,19 +1,32 @@
 // Local: rps-maestro/cmd/api/main.go
- package main
+package main
 
- import (
- 	"fmt"
- 	"github.com/EnzzoHosaki/rps-maestro/internal/config"
- 	"log"
- )
+import (
+	"fmt"
+	"log"
 
- func main() {
- 	cfg, err := config.LoadConfig("./configs")
- 	if err != nil {
- 		log.Fatalf("não foi possível carregar a configuração: %v", err)
- 	}
+	"github.com/EnzzoHosaki/rps-maestro/internal/config"
+	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
+)
 
- 	fmt.Println("Backend do RPS Maestro iniciando na porta:", cfg.Server.Port)
- 	fmt.Println("Conectando ao banco de dados:", cfg.Database.Host)
- 	fmt.Println("Senha do banco de dados carregada:", cfg.Database.Password)
- }
+func main() {
+	cfg, err := config.LoadConfig("./configs")
+	if err != nil {
+		log.Fatalf("não foi possível carregar a configuração: %v", err)
+	}
+
+	fmt.Println("Backend do RPS Maestro iniciando...")
+	fmt.Println("Configurações carregadas com sucesso.")
+
+	repo, err := repository.NewPostgresRepository(cfg.Database)
+	if err != nil {
+		log.Fatalf("não foi possível conectar ao banco de dados: %v", err)
+	}
+	defer repo.Close()
+
+	fmt.Println("Porta do servidor:", cfg.Server.Port)
+	fmt.Println("Host do banco de dados:", cfg.Database.Host)
+	fmt.Println("Senha do banco de dados usada:", cfg.Database.Password)
+
+    fmt.Println("Aplicação iniciada. (Encerrando por enquanto)")
+}
