@@ -8,6 +8,7 @@ import (
 
 	"github.com/EnzzoHosaki/rps-maestro/internal/config"
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
+	"github.com/EnzzoHosaki/rps-maestro/internal/queue"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
 )
 
@@ -16,20 +17,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("não foi possível carregar a configuração: %v", err)
 	}
-
-	fmt.Println("Backend do RPS Maestro iniciando...")
 	fmt.Println("Configurações carregadas com sucesso.")
 
+	// Conexão com o banco de dados
 	repo, err := repository.NewPostgresRepository(cfg.Database)
 	if err != nil {
 		log.Fatalf("não foi possível conectar ao banco de dados: %v", err)
 	}
 	defer repo.Close()
-
 	fmt.Println("Conexão com o PostgreSQL estabelecida com sucesso!")
 
-	ctx := context.Background()
+	// Conexão com o RabbitMQ
+	 queueClient, err := queue.NewRabbitMQClient(cfg.RabbitMQ)
+	 if err != nil {
+	 	log.Fatalf("não foi possível conectar ao RabbitMQ: %v", err)
+	 }
+	 defer queueClient.Close()
 
+	// Essa parte é apenas para fins de teste
+	ctx := context.Background()
 	novoUtilizador := &models.User{
 		Name:         "Utilizador Teste",
 		Email:        "teste@rpscontabilidade.com.br",
