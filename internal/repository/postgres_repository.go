@@ -2,13 +2,12 @@
 package repository
 
 import (
-	"context"
-	"fmt"
-  // "time"
-	"github.com/EnzzoHosaki/rps-maestro/internal/config"
-  "github.com/EnzzoHosaki/rps-maestro/internal/models" 
-	// "github.com/google/uuid" // Mantém comentado
-	"github.com/jackc/pgx/v5/pgxpool"
+	 "context"
+	 "fmt"
+	 // "time"
+	 "github.com/EnzzoHosaki/rps-maestro/internal/config"
+	 // "github.com/google/uuid" // Mantém comentado
+	 "github.com/jackc/pgx/v5/pgxpool"
 )
 
 var _ UserRepository = (*PostgresRepository)(nil)
