@@ -1,0 +1,7 @@
+# Arquivo .gitignore
+
+rps-maestro
+
+.env
+
+*.log
