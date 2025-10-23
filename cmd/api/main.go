@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-
+	"time"
 	"github.com/EnzzoHosaki/rps-maestro/internal/config"
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/queue"
@@ -33,14 +33,15 @@ func main() {
 	 	log.Fatalf("não foi possível conectar ao RabbitMQ: %v", err)
 	 }
 	 defer queueClient.Close()
+	 fmt.Println("Conexão com o RabbitMQ estabelecida com sucesso!")
 
 	// Essa parte é apenas para fins de teste
 	ctx := context.Background()
 	novoUtilizador := &models.User{
-		Name:         "Utilizador Teste",
-		Email:        "teste@rpscontabilidade.com.br",
-		PasswordHash: "senha_insegura_hash_temporario",
-		Role:         "admin",
+			Name:         "Utilizador Teste",
+			Email:        fmt.Sprintf("teste_%d@rpscontabilidade.com.br", time.Now().UnixNano()),
+			PasswordHash: "senha_insegura_hash_temporario",
+			Role:         "admin",
 	}
 
 	err = repo.Create(ctx, novoUtilizador)
