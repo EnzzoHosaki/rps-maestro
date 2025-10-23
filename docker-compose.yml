@@ -34,8 +34,8 @@ services:
     environment:
       - MAESTRO_SERVER_PORT=8000
       - MAESTRO_DB_HOST=postgres
-      - MAESTRO_DB_USER=user
-      - MAESTRO_DB_PASSWORD=${MAESTRO_DATABASE_PASSWORD:-password}
+      - MAESTRO_DB_USER=${MAESTRO_DB_USER}
+      - MAESTRO_DB_PASSWORD=${MAESTRO_DB_PASSWORD}
       - MAESTRO_DB_NAME=maestro_db
     depends_on:
       - postgres
