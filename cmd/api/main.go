@@ -18,8 +18,15 @@ func main() {
 		log.Fatalf("não foi possível carregar a configuração: %v", err)
 	}
 	fmt.Println("Configurações carregadas com sucesso.")
+	
+	// Debug das configurações carregadas
+	fmt.Printf("Configuração do banco: Host=%s, Port=%d, User=%s, DBName=%s\n", 
+		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.DBName)
 
 	// Conexão com o banco de dados
+	fmt.Printf("Tentando conectar ao banco: %s@%s:%d/%s\n", 
+		cfg.Database.User, cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
+	
 	repo, err := repository.NewPostgresRepository(cfg.Database)
 	if err != nil {
 		log.Fatalf("não foi possível conectar ao banco de dados: %v", err)
@@ -28,12 +35,12 @@ func main() {
 	fmt.Println("Conexão com o PostgreSQL estabelecida com sucesso!")
 
 	// Conexão com o RabbitMQ
-	 queueClient, err := queue.NewRabbitMQClient(cfg.RabbitMQ)
-	 if err != nil {
-	 	log.Fatalf("não foi possível conectar ao RabbitMQ: %v", err)
-	 }
-	 defer queueClient.Close()
-	 fmt.Println("Conexão com o RabbitMQ estabelecida com sucesso!")
+	queueClient, err := queue.NewRabbitMQClient(cfg.RabbitMQ)
+	if err != nil {
+		log.Fatalf("não foi possível conectar ao RabbitMQ: %v", err)
+	}
+	defer queueClient.Close()
+	fmt.Println("Conexão com o RabbitMQ estabelecida com sucesso!")
 
 	// Essa parte é apenas para fins de teste
 	ctx := context.Background()
