@@ -2,10 +2,13 @@
 package queue
 
 import (
-	 "fmt"
-	 "log"
-	 "github.com/EnzzoHosaki/rps-maestro/internal/config"
-	 "github.com/rabbitmq/amqp091-go"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+
+	"github.com/EnzzoHosaki/rps-maestro/internal/config"
+	"github.com/rabbitmq/amqp091-go"
 )
 
 type RabbitMQClient struct {
@@ -60,4 +63,49 @@ func (c *RabbitMQClient) Close() {
 			}
 		}
 		log.Println("Conexão com RabbitMQ fechada.")
+}
+
+type JobMessage struct {
+	JobID        string                 `json:"job_id"`
+	AutomationID int                    `json:"automation_id"`
+	ScriptPath   string                 `json:"script_path"`
+	Parameters   map[string]interface{} `json:"parameters"`
+}
+
+func (c *RabbitMQClient) PublishJob(ctx context.Context, queueName string, msg JobMessage) error {
+	queue, err := c.channel.QueueDeclare(
+		queueName,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("falha ao declarar fila: %w", err)
+	}
+
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("falha ao serializar mensagem: %w", err)
+	}
+
+	err = c.channel.PublishWithContext(
+		ctx,
+		"",
+		queue.Name,
+		false,
+		false,
+		amqp091.Publishing{
+			DeliveryMode: amqp091.Persistent,
+			ContentType:  "application/json",
+			Body:         body,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("falha ao publicar mensagem: %w", err)
+	}
+
+	log.Printf("Mensagem publicada na fila %s para job %s", queueName, msg.JobID)
+	return nil
 }

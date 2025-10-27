@@ -9,9 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var _ ScheduleRepository = (*PostgresRepository)(nil)
-
-func (r *PostgresRepository) Create(ctx context.Context, schedule *models.Schedule) error {
+func (r *PostgresScheduleRepository) Create(ctx context.Context, schedule *models.Schedule) error {
 	sql := `INSERT INTO schedules (automation_id, cron_expression, parameters, next_run_at, is_enabled)
 	        VALUES ($1, $2, $3, $4, $5)
 	        RETURNING id, created_at, updated_at`
@@ -30,7 +28,7 @@ func (r *PostgresRepository) Create(ctx context.Context, schedule *models.Schedu
 	return nil
 }
 
-func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*models.Schedule, error) {
+func (r *PostgresScheduleRepository) GetByID(ctx context.Context, id int) (*models.Schedule, error) {
 	sql := `SELECT id, automation_id, cron_expression, parameters, next_run_at, 
 	               is_enabled, created_at, updated_at
 	        FROM schedules WHERE id = $1`
@@ -52,7 +50,7 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*models.Sched
 	return s, nil
 }
 
-func (r *PostgresRepository) GetAllEnabled(ctx context.Context) ([]models.Schedule, error) {
+func (r *PostgresScheduleRepository) GetAllEnabled(ctx context.Context) ([]models.Schedule, error) {
 	sql := `SELECT id, automation_id, cron_expression, parameters, next_run_at, 
 	               is_enabled, created_at, updated_at
 	        FROM schedules
@@ -72,7 +70,7 @@ func (r *PostgresRepository) GetAllEnabled(ctx context.Context) ([]models.Schedu
 	return schedules, nil
 }
 
-func (r *PostgresRepository) UpdateNextRun(ctx context.Context, id int, nextRun *time.Time) error {
+func (r *PostgresScheduleRepository) UpdateNextRun(ctx context.Context, id int, nextRun *time.Time) error {
 	sql := `UPDATE schedules SET next_run_at = $1, updated_at = NOW() WHERE id = $2`
 
 	cmdTag, err := r.db.Exec(ctx, sql, nextRun, id)
@@ -85,7 +83,7 @@ func (r *PostgresRepository) UpdateNextRun(ctx context.Context, id int, nextRun 
 	return nil
 }
 
-func (r *PostgresRepository) Update(ctx context.Context, schedule *models.Schedule) error {
+func (r *PostgresScheduleRepository) Update(ctx context.Context, schedule *models.Schedule) error {
 	sql := `UPDATE schedules
 	        SET automation_id = $1, cron_expression = $2, parameters = $3, 
 	            next_run_at = $4, is_enabled = $5, updated_at = NOW()
@@ -107,7 +105,7 @@ func (r *PostgresRepository) Update(ctx context.Context, schedule *models.Schedu
 	return nil
 }
 
-func (r *PostgresRepository) Delete(ctx context.Context, id int) error {
+func (r *PostgresScheduleRepository) Delete(ctx context.Context, id int) error {
 	sql := `DELETE FROM schedules WHERE id = $1`
 
 	cmdTag, err := r.db.Exec(ctx, sql, id)

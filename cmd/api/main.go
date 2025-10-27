@@ -2,12 +2,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"time"
+	"github.com/EnzzoHosaki/rps-maestro/internal/api"
 	"github.com/EnzzoHosaki/rps-maestro/internal/config"
-	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/queue"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
 )
@@ -18,15 +16,7 @@ func main() {
 		log.Fatalf("não foi possível carregar a configuração: %v", err)
 	}
 	fmt.Println("Configurações carregadas com sucesso.")
-	
-	// Debug das configurações carregadas
-	fmt.Printf("Configuração do banco: Host=%s, Port=%d, User=%s, DBName=%s\n", 
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.DBName)
 
-	// Conexão com o banco de dados
-	fmt.Printf("Tentando conectar ao banco: %s@%s:%d/%s\n", 
-		cfg.Database.User, cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
-	
 	repo, err := repository.NewPostgresRepository(cfg.Database)
 	if err != nil {
 		log.Fatalf("não foi possível conectar ao banco de dados: %v", err)
@@ -34,33 +24,21 @@ func main() {
 	defer repo.Close()
 	fmt.Println("Conexão com o PostgreSQL estabelecida com sucesso!")
 
-	// Conexão com o RabbitMQ
 	queueClient, err := queue.NewRabbitMQClient(cfg.RabbitMQ)
 	if err != nil {
 		log.Fatalf("não foi possível conectar ao RabbitMQ: %v", err)
 	}
 	defer queueClient.Close()
 	fmt.Println("Conexão com o RabbitMQ estabelecida com sucesso!")
+	
+	userRepo := repo.GetUserRepository()
+	automationRepo := repo.GetAutomationRepository()
+	jobRepo := repo.GetJobRepository()
+	jobLogRepo := repo.GetJobLogRepository()
+	scheduleRepo := repo.GetScheduleRepository()
 
-	// Essa parte é apenas para fins de teste
-	ctx := context.Background()
-	novoUtilizador := &models.User{
-			Name:         "Utilizador Teste",
-			Email:        fmt.Sprintf("teste_%d@rpscontabilidade.com.br", time.Now().UnixNano()),
-			PasswordHash: "senha_insegura_hash_temporario",
-			Role:         "admin",
-	}
+	server := api.NewServer(cfg.Server, userRepo, automationRepo, jobRepo, jobLogRepo, scheduleRepo, queueClient)
 
-	err = repo.Create(ctx, novoUtilizador)
-	if err != nil {
-		log.Printf("ERRO ao criar utilizador: %v", err)
-	} else {
-		fmt.Printf("Utilizador criado com sucesso! ID: %d, Email: %s, Criado em: %s\n",
-			novoUtilizador.ID,
-			novoUtilizador.Email,
-			novoUtilizador.CreatedAt.Format("2006-01-02 15:04:05"),
-		)
-	}
+	server.Start()
 
-	fmt.Println("Aplicação iniciada e teste concluído. (Encerrando por enquanto)")
 }
