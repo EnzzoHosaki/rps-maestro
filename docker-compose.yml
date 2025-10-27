@@ -17,6 +17,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - maestro-network
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -27,6 +29,8 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    networks:
+      - maestro-network
 
   maestro-backend:
     container_name: maestro_backend
@@ -48,6 +52,13 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_started
+    networks:
+      - maestro-network
+
+networks:
+  maestro-network:
+    name: maestro-network
+    driver: bridge
 
 volumes:
   postgres_data:
