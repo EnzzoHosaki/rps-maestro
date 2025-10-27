@@ -36,7 +36,7 @@ services:
     container_name: maestro_backend
     build: .
     ports:
-      - "8000:8000"
+      - "8080:8000"  # Porta externa 8080 mapeada para porta interna 8000
     volumes:
       - .:/app
     env_file:
