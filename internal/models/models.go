@@ -23,6 +23,7 @@ type Automation struct {
 	Name          string          `db:"name" json:"name"`
 	Description   *string         `db:"description" json:"description,omitempty"`
 	ScriptPath    string          `db:"script_path" json:"scriptPath"`
+	QueueName     string          `db:"queue_name" json:"queueName"`
 	DefaultParams json.RawMessage `db:"default_params" json:"defaultParams,omitempty"`
 	CreatedAt     time.Time       `db:"created_at" json:"createdAt"`
 	UpdatedAt     time.Time       `db:"updated_at" json:"updatedAt"`

@@ -155,7 +155,13 @@ func (h *AutomationHandler) ExecuteAutomation(c *gin.Context) {
 		Parameters:   params,
 	}
 
-	if err := h.queueClient.PublishJob(c.Request.Context(), "automation_jobs", queueMsg); err != nil {
+	// Usa o nome da fila definido na automação, ou um padrão se não estiver definido
+	queueName := automation.QueueName
+	if queueName == "" {
+		queueName = "automation_jobs" // Nome padrão se não estiver definido
+	}
+
+	if err := h.queueClient.PublishJob(c.Request.Context(), queueName, queueMsg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao enfileirar job: " + err.Error()})
 		return
 	}

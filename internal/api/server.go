@@ -85,6 +85,16 @@ func (s *Server) setupRoutes() {
 			schedules.PUT("/:id", scheduleHandler.UpdateSchedule)
 			schedules.DELETE("/:id", scheduleHandler.DeleteSchedule)
 		}
+
+		// Rotas da API do Worker (não protegidas por autenticação)
+		// Estas rotas são chamadas pelos workers Python para reportar status
+		workerHandler := handlers.NewWorkerHandler(s.jobRepo, s.jobLogRepo)
+		worker := v1.Group("/worker")
+		{
+			worker.POST("/jobs/:id/start", workerHandler.HandleJobStart)
+			worker.POST("/jobs/:id/log", workerHandler.HandleJobLog)
+			worker.POST("/jobs/:id/finish", workerHandler.HandleJobFinish)
+		}
 	}
 }
 

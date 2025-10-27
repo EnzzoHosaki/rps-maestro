@@ -9,14 +9,15 @@ import (
 )
 
 func (r *PostgresAutomationRepository) Create(ctx context.Context, automation *models.Automation) error {
-	sql := `INSERT INTO automations (name, description, script_path, default_params)
-	        VALUES ($1, $2, $3, $4)
+	sql := `INSERT INTO automations (name, description, script_path, queue_name, default_params)
+	        VALUES ($1, $2, $3, $4, $5)
 	        RETURNING id, created_at, updated_at`
 
 	err := r.db.QueryRow(ctx, sql,
 		automation.Name,
 		automation.Description,
 		automation.ScriptPath,
+		automation.QueueName,
 		automation.DefaultParams,
 	).Scan(&automation.ID, &automation.CreatedAt, &automation.UpdatedAt)
 
@@ -27,7 +28,7 @@ func (r *PostgresAutomationRepository) Create(ctx context.Context, automation *m
 }
 
 func (r *PostgresAutomationRepository) GetByID(ctx context.Context, id int) (*models.Automation, error) {
-	sql := `SELECT id, name, description, script_path, default_params, created_at, updated_at
+	sql := `SELECT id, name, description, script_path, queue_name, default_params, created_at, updated_at
 	        FROM automations WHERE id = $1`
 
 	a := &models.Automation{}
@@ -36,6 +37,7 @@ func (r *PostgresAutomationRepository) GetByID(ctx context.Context, id int) (*mo
 		&a.Name,
 		&a.Description,
 		&a.ScriptPath,
+		&a.QueueName,
 		&a.DefaultParams,
 		&a.CreatedAt,
 		&a.UpdatedAt,
@@ -47,7 +49,7 @@ func (r *PostgresAutomationRepository) GetByID(ctx context.Context, id int) (*mo
 }
 
 func (r *PostgresAutomationRepository) GetByName(ctx context.Context, name string) (*models.Automation, error) {
-	sql := `SELECT id, name, description, script_path, default_params, created_at, updated_at
+	sql := `SELECT id, name, description, script_path, queue_name, default_params, created_at, updated_at
 	        FROM automations WHERE name = $1`
 
 	a := &models.Automation{}
@@ -56,6 +58,7 @@ func (r *PostgresAutomationRepository) GetByName(ctx context.Context, name strin
 		&a.Name,
 		&a.Description,
 		&a.ScriptPath,
+		&a.QueueName,
 		&a.DefaultParams,
 		&a.CreatedAt,
 		&a.UpdatedAt,
@@ -67,7 +70,7 @@ func (r *PostgresAutomationRepository) GetByName(ctx context.Context, name strin
 }
 
 func (r *PostgresAutomationRepository) GetAll(ctx context.Context) ([]models.Automation, error) {
-	sql := `SELECT id, name, description, script_path, default_params, created_at, updated_at
+	sql := `SELECT id, name, description, script_path, queue_name, default_params, created_at, updated_at
 	        FROM automations ORDER BY name`
 
 	rows, err := r.db.Query(ctx, sql)
@@ -85,14 +88,15 @@ func (r *PostgresAutomationRepository) GetAll(ctx context.Context) ([]models.Aut
 
 func (r *PostgresAutomationRepository) Update(ctx context.Context, automation *models.Automation) error {
 	sql := `UPDATE automations
-	        SET name = $1, description = $2, script_path = $3, default_params = $4, updated_at = NOW()
-	        WHERE id = $5
+	        SET name = $1, description = $2, script_path = $3, queue_name = $4, default_params = $5, updated_at = NOW()
+	        WHERE id = $6
 	        RETURNING updated_at`
 
 	err := r.db.QueryRow(ctx, sql,
 		automation.Name,
 		automation.Description,
 		automation.ScriptPath,
+		automation.QueueName,
 		automation.DefaultParams,
 		automation.ID,
 	).Scan(&automation.UpdatedAt)
