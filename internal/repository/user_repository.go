@@ -7,7 +7,7 @@ import (
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 )
 
-func (r *PostgresRepository) Create(ctx context.Context, user *models.User) error {
+func (r *PostgresUserRepository) Create(ctx context.Context, user *models.User) error {
 	sql := `INSERT INTO users (name, email, password_hash, role)
 	        VALUES ($1, $2, $3, $4)
 	        RETURNING id, created_at, updated_at`
@@ -26,7 +26,7 @@ func (r *PostgresRepository) Create(ctx context.Context, user *models.User) erro
 	return nil
 }
 
-func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*models.User, error) {
+func (r *PostgresUserRepository) GetByID(ctx context.Context, id int) (*models.User, error) {
 	sql := `SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE id = $1`
 	user := &models.User{}
 	err := r.db.QueryRow(ctx, sql, id).Scan(
@@ -44,7 +44,7 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*models.User,
 	return user, nil
 }
 
-func (r *PostgresRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
+func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	sql := `SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE email = $1`
 	user := &models.User{}
 	err := r.db.QueryRow(ctx, sql, email).Scan(

@@ -11,18 +11,33 @@ import (
 )
 
 type Server struct {
-	config config.ServerConfig
-	repo   repository.UserRepository
-	router *gin.Engine
+	config              config.ServerConfig
+	userRepo            repository.UserRepository
+	automationRepo      repository.AutomationRepository
+	jobRepo             repository.JobRepository
+	jobLogRepo          repository.JobLogRepository
+	scheduleRepo        repository.ScheduleRepository
+	router              *gin.Engine
 }
 
-func NewServer(cfg config.ServerConfig, userRepo repository.UserRepository) *Server {
+func NewServer(
+	cfg config.ServerConfig,
+	userRepo repository.UserRepository,
+	automationRepo repository.AutomationRepository,
+	jobRepo repository.JobRepository,
+	jobLogRepo repository.JobLogRepository,
+	scheduleRepo repository.ScheduleRepository,
+) *Server {
 	router := gin.Default()
 	
 	server := &Server{
-		config: cfg,
-		repo:   userRepo,
-		router: router,
+		config:         cfg,
+		userRepo:       userRepo,
+		automationRepo: automationRepo,
+		jobRepo:        jobRepo,
+		jobLogRepo:     jobLogRepo,
+		scheduleRepo:   scheduleRepo,
+		router:         router,
 	}
 
 	server.setupRoutes()

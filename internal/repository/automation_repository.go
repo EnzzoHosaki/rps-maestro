@@ -8,9 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var _ AutomationRepository = (*PostgresRepository)(nil)
-
-func (r *PostgresRepository) Create(ctx context.Context, automation *models.Automation) error {
+func (r *PostgresAutomationRepository) Create(ctx context.Context, automation *models.Automation) error {
 	sql := `INSERT INTO automations (name, description, script_path, default_params)
 	        VALUES ($1, $2, $3, $4)
 	        RETURNING id, created_at, updated_at`
@@ -28,7 +26,7 @@ func (r *PostgresRepository) Create(ctx context.Context, automation *models.Auto
 	return nil
 }
 
-func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*models.Automation, error) {
+func (r *PostgresAutomationRepository) GetByID(ctx context.Context, id int) (*models.Automation, error) {
 	sql := `SELECT id, name, description, script_path, default_params, created_at, updated_at
 	        FROM automations WHERE id = $1`
 
@@ -48,7 +46,7 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*models.Autom
 	return a, nil
 }
 
-func (r *PostgresRepository) GetByName(ctx context.Context, name string) (*models.Automation, error) {
+func (r *PostgresAutomationRepository) GetByName(ctx context.Context, name string) (*models.Automation, error) {
 	sql := `SELECT id, name, description, script_path, default_params, created_at, updated_at
 	        FROM automations WHERE name = $1`
 
@@ -68,7 +66,7 @@ func (r *PostgresRepository) GetByName(ctx context.Context, name string) (*model
 	return a, nil
 }
 
-func (r *PostgresRepository) GetAll(ctx context.Context) ([]models.Automation, error) {
+func (r *PostgresAutomationRepository) GetAll(ctx context.Context) ([]models.Automation, error) {
 	sql := `SELECT id, name, description, script_path, default_params, created_at, updated_at
 	        FROM automations ORDER BY name`
 
@@ -85,7 +83,7 @@ func (r *PostgresRepository) GetAll(ctx context.Context) ([]models.Automation, e
 	return automations, nil
 }
 
-func (r *PostgresRepository) Update(ctx context.Context, automation *models.Automation) error {
+func (r *PostgresAutomationRepository) Update(ctx context.Context, automation *models.Automation) error {
 	sql := `UPDATE automations
 	        SET name = $1, description = $2, script_path = $3, default_params = $4, updated_at = NOW()
 	        WHERE id = $5
@@ -105,7 +103,7 @@ func (r *PostgresRepository) Update(ctx context.Context, automation *models.Auto
 	return nil
 }
 
-func (r *PostgresRepository) Delete(ctx context.Context, id int) error {
+func (r *PostgresAutomationRepository) Delete(ctx context.Context, id int) error {
 	sql := `DELETE FROM automations WHERE id = $1`
 
 	cmdTag, err := r.db.Exec(ctx, sql, id)

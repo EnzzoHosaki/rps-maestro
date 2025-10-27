@@ -31,7 +31,13 @@ func main() {
 	defer queueClient.Close()
 	fmt.Println("Conexão com o RabbitMQ estabelecida com sucesso!")
 	
-	server := api.NewServer(cfg.Server, repo)
+	userRepo := repo.GetUserRepository()
+	automationRepo := repo.GetAutomationRepository()
+	jobRepo := repo.GetJobRepository()
+	jobLogRepo := repo.GetJobLogRepository()
+	scheduleRepo := repo.GetScheduleRepository()
+
+	server := api.NewServer(cfg.Server, userRepo, automationRepo, jobRepo, jobLogRepo, scheduleRepo)
 
 	server.Start()
 

@@ -9,9 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var _ JobLogRepository = (*PostgresRepository)(nil)
-
-func (r *PostgresRepository) Create(ctx context.Context, log *models.JobLog) error {
+func (r *PostgresJobLogRepository) Create(ctx context.Context, log *models.JobLog) error {
 	sql := `INSERT INTO job_logs (job_id, level, message)
 	        VALUES ($1, $2, $3)
 	        RETURNING id, timestamp`
@@ -28,7 +26,7 @@ func (r *PostgresRepository) Create(ctx context.Context, log *models.JobLog) err
 	return nil
 }
 
-func (r *PostgresRepository) GetByJobID(ctx context.Context, jobID uuid.UUID) ([]models.JobLog, error) {
+func (r *PostgresJobLogRepository) GetByJobID(ctx context.Context, jobID uuid.UUID) ([]models.JobLog, error) {
 	sql := `SELECT id, job_id, timestamp, level, message
 	        FROM job_logs
 	        WHERE job_id = $1

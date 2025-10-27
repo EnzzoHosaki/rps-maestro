@@ -2,25 +2,58 @@
 package repository
 
 import (
-	 "context"
-	 "fmt"
-	 // "time"
-	 "github.com/EnzzoHosaki/rps-maestro/internal/config"
-	 // "github.com/google/uuid"
-	 "github.com/jackc/pgx/v5/pgxpool"
+	"context"
+	"fmt"
+	"github.com/EnzzoHosaki/rps-maestro/internal/config"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var _ UserRepository = (*PostgresRepository)(nil)
-var _ AutomationRepository = (*PostgresRepository)(nil)
-var _ JobRepository = (*PostgresRepository)(nil)
-var _ JobLogRepository = (*PostgresRepository)(nil)
-var _ ScheduleRepository = (*PostgresRepository)(nil)
-
-type PostgresRepository struct {
+// Base struct for all repositories
+type baseRepository struct {
 	db *pgxpool.Pool
 }
 
-func NewPostgresRepository(cfg config.DatabaseConfig) (*PostgresRepository, error) {
+// User Repository
+type PostgresUserRepository struct {
+	baseRepository
+}
+
+var _ UserRepository = (*PostgresUserRepository)(nil)
+
+// Automation Repository
+type PostgresAutomationRepository struct {
+	baseRepository
+}
+
+var _ AutomationRepository = (*PostgresAutomationRepository)(nil)
+
+// Job Repository
+type PostgresJobRepository struct {
+	baseRepository
+}
+
+var _ JobRepository = (*PostgresJobRepository)(nil)
+
+// Job Log Repository
+type PostgresJobLogRepository struct {
+	baseRepository
+}
+
+var _ JobLogRepository = (*PostgresJobLogRepository)(nil)
+
+// Schedule Repository
+type PostgresScheduleRepository struct {
+	baseRepository
+}
+
+var _ ScheduleRepository = (*PostgresScheduleRepository)(nil)
+
+// Connection holder for all repositories
+type PostgresConnection struct {
+	db *pgxpool.Pool
+}
+
+func NewPostgresRepository(cfg config.DatabaseConfig) (*PostgresConnection, error) {
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		cfg.User,
 		cfg.Password,
@@ -41,12 +74,42 @@ func NewPostgresRepository(cfg config.DatabaseConfig) (*PostgresRepository, erro
 
 	fmt.Println("Conexão com o PostgreSQL estabelecida com sucesso!")
 
-	return &PostgresRepository{db: pool}, nil
+	return &PostgresConnection{db: pool}, nil
 }
 
-func (r *PostgresRepository) Close() {
-	if r.db != nil {
-		r.db.Close()
+func (pc *PostgresConnection) GetUserRepository() UserRepository {
+	return &PostgresUserRepository{
+		baseRepository: baseRepository{db: pc.db},
+	}
+}
+
+func (pc *PostgresConnection) GetAutomationRepository() AutomationRepository {
+	return &PostgresAutomationRepository{
+		baseRepository: baseRepository{db: pc.db},
+	}
+}
+
+func (pc *PostgresConnection) GetJobRepository() JobRepository {
+	return &PostgresJobRepository{
+		baseRepository: baseRepository{db: pc.db},
+	}
+}
+
+func (pc *PostgresConnection) GetJobLogRepository() JobLogRepository {
+	return &PostgresJobLogRepository{
+		baseRepository: baseRepository{db: pc.db},
+	}
+}
+
+func (pc *PostgresConnection) GetScheduleRepository() ScheduleRepository {
+	return &PostgresScheduleRepository{
+		baseRepository: baseRepository{db: pc.db},
+	}
+}
+
+func (pc *PostgresConnection) Close() {
+	if pc.db != nil {
+		pc.db.Close()
 		fmt.Println("Conexão com o PostgreSQL fechada.")
 	}
 }

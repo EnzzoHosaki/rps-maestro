@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
-var _ JobRepository = (*PostgresRepository)(nil)
-
-func (r *PostgresRepository) Create(ctx context.Context, job *models.Job) error {
+func (r *PostgresJobRepository) Create(ctx context.Context, job *models.Job) error {
 	sql := `INSERT INTO jobs (automation_id, user_id, status, parameters)
 	        VALUES ($1, $2, $3, $4)
 	        RETURNING id, created_at`
@@ -29,7 +26,7 @@ func (r *PostgresRepository) Create(ctx context.Context, job *models.Job) error 
 	return nil
 }
 
-func (r *PostgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Job, error) {
+func (r *PostgresJobRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Job, error) {
 	sql := `SELECT id, automation_id, user_id, status, parameters, result,
 	               started_at, completed_at, created_at
 	        FROM jobs WHERE id = $1`
@@ -52,7 +49,7 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*models
 	return j, nil
 }
 
-func (r *PostgresRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+func (r *PostgresJobRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	sql := `UPDATE jobs SET status = $1 WHERE id = $2`
 	
 	cmdTag, err := r.db.Exec(ctx, sql, status, id)
@@ -65,7 +62,7 @@ func (r *PostgresRepository) UpdateStatus(ctx context.Context, id uuid.UUID, sta
 	return nil
 }
 
-func (r *PostgresRepository) SetResult(ctx context.Context, id uuid.UUID, result []byte) error {
+func (r *PostgresJobRepository) SetResult(ctx context.Context, id uuid.UUID, result []byte) error {
 	sql := `UPDATE jobs SET result = $1 WHERE id = $2`
 
 	cmdTag, err := r.db.Exec(ctx, sql, result, id)
@@ -78,7 +75,7 @@ func (r *PostgresRepository) SetResult(ctx context.Context, id uuid.UUID, result
 	return nil
 }
 
-func (r *PostgresRepository) SetStarted(ctx context.Context, id uuid.UUID) error {
+func (r *PostgresJobRepository) SetStarted(ctx context.Context, id uuid.UUID) error {
 	sql := `UPDATE jobs SET started_at = NOW(), status = 'running' WHERE id = $1`
 	
 	cmdTag, err := r.db.Exec(ctx, sql, id)
@@ -91,7 +88,7 @@ func (r *PostgresRepository) SetStarted(ctx context.Context, id uuid.UUID) error
 	return nil
 }
 
-func (r *PostgresRepository) SetCompleted(ctx context.Context, id uuid.UUID) error {
+func (r *PostgresJobRepository) SetCompleted(ctx context.Context, id uuid.UUID) error {
 	sql := `UPDATE jobs SET completed_at = NOW() WHERE id = $1`
 	
 	cmdTag, err := r.db.Exec(ctx, sql, id)
