@@ -16,6 +16,7 @@ FROM alpine:latest
 WORKDIR /root/
 
 COPY --from=builder /app/rps-maestro .
+COPY --from=builder /app/configs ./configs
 
 EXPOSE 8000
 

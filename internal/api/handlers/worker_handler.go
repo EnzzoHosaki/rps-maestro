@@ -78,15 +78,16 @@ func (h *WorkerHandler) HandleJobLog(c *gin.Context) {
 
 	// Valida o nível do log
 	validLevels := map[string]bool{
-		"DEBUG":   true,
-		"INFO":    true,
-		"WARNING": true,
-		"ERROR":   true,
+		"DEBUG":    true,
+		"INFO":     true,
+		"WARNING":  true,
+		"WARN":     true,
+		"ERROR":    true,
 		"CRITICAL": true,
 	}
 
 	if !validLevels[logRequest.Level] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Nível de log inválido. Use: DEBUG, INFO, WARNING, ERROR, CRITICAL"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nível de log inválido. Use: DEBUG, INFO, WARNING, WARN, ERROR, CRITICAL"})
 		return
 	}
 
@@ -138,12 +139,14 @@ func (h *WorkerHandler) HandleJobFinish(c *gin.Context) {
 
 	// Valida o status
 	validStatuses := map[string]bool{
-		"completed": true,
-		"failed":    true,
+		"completed":             true,
+		"completed_no_invoices": true,
+		"failed":                true,
+		"canceled":              true,
 	}
 
 	if !validStatuses[finishRequest.Status] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Status inválido. Use: completed ou failed"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Status inválido. Use: completed, completed_no_invoices, failed ou canceled"})
 		return
 	}
 
