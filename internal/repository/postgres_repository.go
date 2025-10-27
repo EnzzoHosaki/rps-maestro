@@ -6,15 +6,15 @@ import (
 	 "fmt"
 	 // "time"
 	 "github.com/EnzzoHosaki/rps-maestro/internal/config"
-	 // "github.com/google/uuid" // Mantém comentado
+	 // "github.com/google/uuid"
 	 "github.com/jackc/pgx/v5/pgxpool"
 )
 
 var _ UserRepository = (*PostgresRepository)(nil)
-// var _ AutomationRepository = (*PostgresRepository)(nil)
-// var _ JobRepository = (*PostgresRepository)(nil)
-// var _ JobLogRepository = (*PostgresRepository)(nil)
-// var _ ScheduleRepository = (*PostgresRepository)(nil)
+var _ AutomationRepository = (*PostgresRepository)(nil)
+var _ JobRepository = (*PostgresRepository)(nil)
+var _ JobLogRepository = (*PostgresRepository)(nil)
+var _ ScheduleRepository = (*PostgresRepository)(nil)
 
 type PostgresRepository struct {
 	db *pgxpool.Pool
