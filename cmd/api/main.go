@@ -37,7 +37,7 @@ func main() {
 	jobLogRepo := repo.GetJobLogRepository()
 	scheduleRepo := repo.GetScheduleRepository()
 
-	server := api.NewServer(cfg.Server, userRepo, automationRepo, jobRepo, jobLogRepo, scheduleRepo)
+	server := api.NewServer(cfg.Server, userRepo, automationRepo, jobRepo, jobLogRepo, scheduleRepo, queueClient)
 
 	server.Start()
 

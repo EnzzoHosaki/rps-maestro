@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Base struct for all repositories
+// Struct base para todos os repositórios
 type baseRepository struct {
 	db *pgxpool.Pool
 }
@@ -48,7 +48,7 @@ type PostgresScheduleRepository struct {
 
 var _ ScheduleRepository = (*PostgresScheduleRepository)(nil)
 
-// Connection holder for all repositories
+// Holder de conexão para todos os repositórios
 type PostgresConnection struct {
 	db *pgxpool.Pool
 }
