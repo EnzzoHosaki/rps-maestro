@@ -1,0 +1,49 @@
+name: Deploy Maestro Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: 1. Checkout do código
+        uses: actions/checkout@v4
+
+      - name: 2. Preparar o ambiente de produção do Maestro
+        run: |
+          # Define o caminho de produção baseado no Secret
+          PROD_PATH="${{ secrets.MAESTRO_DEPLOY_PATH }}"
+          
+          # Pega o caminho do código que o runner baixou
+          WORKSPACE_PATH="${{ github.workspace }}"
+          
+          echo "Criando diretório de produção em $PROD_PATH"
+          mkdir -p $PROD_PATH
+          
+          echo "Criando arquivo .env em $PROD_PATH"
+          # Cria o .env de produção a partir do Secret
+          echo "${{ secrets.MAESTRO_ENV_FILE }}" > $PROD_PATH/.env
+          
+          echo "Sincronizando código-fonte para $PROD_PATH"
+          # Copia todo o código, incluindo Dockerfile e docker-compose.yml
+          rsync -aq --delete $WORKSPACE_PATH/ $PROD_PATH/
+
+      - name: 3. Buildar e Reiniciar o Serviço Maestro
+        # Define o diretório de trabalho para os comandos docker-compose
+        working-directory: ${{ secrets.MAESTRO_DEPLOY_PATH }}
+        run: |
+          echo "Buildando a nova imagem do maestro-backend..."
+          # Builda o serviço 'maestro-backend'
+          docker-compose build maestro-backend
+          
+          echo "Subindo o serviço atualizado (sem afetar o DB ou RabbitMQ)..."
+          # Sobe o serviço, recriando apenas ele, sem afetar dependências
+          # Isso é VITAL para não reiniciar seu banco de dados
+          docker-compose up -d --no-deps maestro-backend
+          
+          echo "Limpando imagens antigas..."
+          docker image prune -f
