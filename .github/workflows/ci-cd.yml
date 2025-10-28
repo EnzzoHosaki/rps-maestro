@@ -60,7 +60,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-          cache: 'go'
+          cache: true
 
       - name: Run go mod download
         run: go mod download
@@ -262,15 +262,18 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const status = '${{ needs.lint-and-test.result }}' === 'success' ? '✅' : '❌';
-            const comment = `## CI/CD Pipeline Results ${status}
-
+            const lintStatus = '${{ needs.lint-and-test.result }}' == 'success' ? '✅ Passed' : '❌ Failed';
+            const buildStatus = '${{ needs.build-docker.result }}' == 'success' ? '✅ Built' : '❌ Failed';
+            const securityStatus = '${{ needs.security-scan.result }}' == 'success' ? '✅ No issues' : '⚠️ Check results';
+            
+            const comment = `## CI/CD Pipeline Results
+            
             | Check | Status |
             |-------|--------|
-            | Lint & Tests | ${{ needs.lint-and-test.result === 'success' ? '✅ Passed' : '❌ Failed' }} |
-            | Docker Build | ${{ needs.build-docker.result === 'success' ? '✅ Built' : '❌ Failed' }} |
-            | Security Scan | ${{ needs.security-scan.result === 'success' ? '✅ No issues' : '⚠️ Check results' }} |
-
+            | Lint & Tests | ${lintStatus} |
+            | Docker Build | ${buildStatus} |
+            | Security Scan | ${securityStatus} |
+            
             [View full workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
             
             github.rest.issues.createComment({
