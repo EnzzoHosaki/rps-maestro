@@ -1,4 +1,4 @@
-name: Deploy Maestro Backend
+name: Deploy Maestro Backend (Debug)
 
 on:
   push:
@@ -13,36 +13,46 @@ jobs:
       - name: 1. Checkout do código
         uses: actions/checkout@v4
 
-      - name: 2. Preparar o ambiente de produção do Maestro
+      - name: 2. DEBUG - Preparar o ambiente e VERIFICAR .env
         run: |
-          # Define o caminho de produção baseado no Secret
           PROD_PATH="${{ secrets.MAESTRO_DEPLOY_PATH }}"
           
-          # Pega o caminho do código que o runner baixou
-          WORKSPACE_PATH="${{ github.workspace }}"
+          echo "--- INICIANDO DEBUG ---"
+          echo "Caminho do deploy (PROD_PATH): $PROD_PATH"
           
-          echo "Criando diretório de produção em $PROD_PATH"
+          # 1. Verificar se o secret foi lido
+          echo "Verificando o secret MAESTRO_ENV_FILE..."
+          if [ -z "${{ secrets.MAESTRO_ENV_FILE }}" ]; then
+            echo "ERRO: O secret MAESTRO_ENV_FILE está VAZIO ou NÃO EXISTE."
+            echo "Por favor, verifique o nome do secret e se ele tem conteúdo."
+          else
+            echo "SUCESSO: O secret MAESTRO_ENV_FILE foi lido."
+          fi
+          
+          # 2. Criar o diretório e o arquivo .env
+          echo "Criando diretório $PROD_PATH..."
           mkdir -p $PROD_PATH
           
-          echo "Criando arquivo .env em $PROD_PATH"
-          # Cria o .env de produção a partir do Secret
+          echo "Escrevendo secret em $PROD_PATH/.env..."
           echo "${{ secrets.MAESTRO_ENV_FILE }}" > $PROD_PATH/.env
           
-          echo "Sincronizando código-fonte para $PROD_PATH"
-          # Copia todo o código, incluindo Dockerfile e docker-compose.yml
-          rsync -aq --delete $WORKSPACE_PATH/ $PROD_PATH/
+          # 3. Listar o conteúdo do diretório
+          echo "Listando conteúdo de $PROD_PATH:"
+          ls -la $PROD_PATH
+          
+          # 4. Mostrar o conteúdo do .env criado
+          echo "Mostrando o conteúdo de $PROD_PATH/.env:"
+          cat $PROD_PATH/.env
+          echo "--- FIM DO DEBUG ---"
 
       - name: 3. Buildar e Reiniciar o Serviço Maestro
-        # Define o diretório de trabalho para os comandos docker-compose
         working-directory: ${{ secrets.MAESTRO_DEPLOY_PATH }}
         run: |
           echo "Buildando a nova imagem do maestro-backend..."
-          # Builda o serviço 'maestro-backend'
           docker-compose build maestro-backend
           
-          echo "Subindo o serviço atualizado (sem afetar o DB ou RabbitMQ)..."
-          # Sobe o serviço, recriando apenas ele, sem afetar dependências
-          # Isso é VITAL para não reiniciar seu banco de dados
+          echo "Subindo o serviço atualizado..."
+          # Este comando agora deve encontrar o .env
           docker-compose up -d --no-deps maestro-backend
           
           echo "Limpando imagens antigas..."
