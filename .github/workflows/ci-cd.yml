@@ -27,8 +27,8 @@ jobs:
       postgres:
         image: postgres:15-alpine
         env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: maestro_db
         options: >-
           --health-cmd pg_isready
@@ -55,8 +55,8 @@ jobs:
     env:
       MAESTRO_DB_HOST: localhost
       MAESTRO_DB_PORT: 5432
-      MAESTRO_DB_USER: user
-      MAESTRO_DB_PASSWORD: password
+      MAESTRO_DB_USER: postgres
+      MAESTRO_DB_PASSWORD: postgres
       MAESTRO_DB_NAME: maestro_db
       MAESTRO_RABBITMQ_HOST: localhost
       MAESTRO_RABBITMQ_PORT: 5672
