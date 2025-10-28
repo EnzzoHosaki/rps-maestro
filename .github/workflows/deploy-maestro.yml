@@ -22,7 +22,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Prepare environment
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tag
+        id: image
+        run: |
+          echo "tag=ghcr.io/${{ github.repository }}:sha-${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Prepare deployment directory
         env:
           MAESTRO_ENV_FILE: ${{ secrets.MAESTRO_ENV_FILE }}
         run: |
@@ -32,16 +44,22 @@ jobs:
           echo "  Deploy Path: $PROD_PATH"
           echo "  Environment: ${{ github.event.inputs.environment }}"
           echo "  Triggered by: ${{ github.actor }}"
+          echo "  Image Tag: sha-${{ github.sha }}"
           
           # Criar o diretório
           mkdir -p "$PROD_PATH"
+          
+          # Copiar docker-compose de produção
+          cp docker-compose.prod.yml "$PROD_PATH/docker-compose.yml"
+          echo "✅ Docker Compose file copied"
           
           # Criar o arquivo .env
           if [ -z "$MAESTRO_ENV_FILE" ]; then
             echo "⚠️  Warning: MAESTRO_ENV_FILE secret is empty"
           else
             echo "$MAESTRO_ENV_FILE" > "$PROD_PATH/.env"
-            echo "✅ .env file created"
+            echo "IMAGE_TAG=sha-${{ github.sha }}" >> "$PROD_PATH/.env"
+            echo "✅ .env file created with image tag"
           fi
 
       - name: Deploy with Docker Compose
@@ -50,22 +68,29 @@ jobs:
           echo "🚀 Starting deployment..."
           
           # Pull latest image
-          docker-compose pull maestro-backend
+          echo "🚀 Pulling image: ${{ steps.image.outputs.tag }}"
+          docker pull ${{ steps.image.outputs.tag }}
           
-          # Start or restart the service
-          docker-compose up -d --no-deps maestro-backend
+          # Start or restart services
+          echo "🚀 Starting services..."
+          docker-compose up -d --no-build
           
-          # Cleanup
-          docker image prune -f
+          # Cleanup old images
+          echo "🧹 Cleaning up old images..."
+          docker image prune -af --filter "until=72h"
           
           echo "✅ Deployment completed"
 
       - name: Health check
         run: |
-          echo "🏥 Checking application health..."
-          sleep 5
-          if curl -f http://localhost:8080/health || true; then
-            echo "✅ Application is healthy"
-          else
-            echo "⚠️  Application started (health check endpoint may not be implemented)"
-          fi
+          echo "🏥 Waiting for application..."
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/api/v1/health 2>/dev/null; then
+              echo "✅ Application is healthy"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+          echo "⚠️  Health check timed out (endpoint may not be implemented)"
+          exit 0

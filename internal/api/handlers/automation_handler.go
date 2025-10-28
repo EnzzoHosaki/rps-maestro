@@ -155,10 +155,9 @@ func (h *AutomationHandler) ExecuteAutomation(c *gin.Context) {
 		Parameters:   params,
 	}
 
-	// Usa o nome da fila definido na automação, ou um padrão se não estiver definido
 	queueName := automation.QueueName
 	if queueName == "" {
-		queueName = "automation_jobs" // Nome padrão se não estiver definido
+		queueName = "automation_jobs"
 	}
 
 	if err := h.queueClient.PublishJob(c.Request.Context(), queueName, queueMsg); err != nil {

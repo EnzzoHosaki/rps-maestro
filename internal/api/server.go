@@ -55,7 +55,6 @@ func (s *Server) setupRoutes() {
 	{
 		v1.GET("/health", s.healthCheck)
 
-		// Rotas das automações
 		automationHandler := handlers.NewAutomationHandler(s.automationRepo, s.jobRepo, s.queueClient)
 		automations := v1.Group("/automations")
 		{
@@ -67,7 +66,6 @@ func (s *Server) setupRoutes() {
 			automations.POST("/:id/execute", automationHandler.ExecuteAutomation)
 		}
 
-		// Rotas dos jobs
 		jobHandler := handlers.NewJobHandler(s.jobRepo, s.jobLogRepo)
 		jobs := v1.Group("/jobs")
 		{
@@ -75,7 +73,6 @@ func (s *Server) setupRoutes() {
 			jobs.GET("/:id/logs", jobHandler.GetJobLogs)
 		}
 
-		// Rotas dos schedules
 		scheduleHandler := handlers.NewScheduleHandler(s.scheduleRepo)
 		schedules := v1.Group("/schedules")
 		{
@@ -86,8 +83,6 @@ func (s *Server) setupRoutes() {
 			schedules.DELETE("/:id", scheduleHandler.DeleteSchedule)
 		}
 
-		// Rotas da API do Worker (não protegidas por autenticação)
-		// Estas rotas são chamadas pelos workers Python para reportar status
 		workerHandler := handlers.NewWorkerHandler(s.jobRepo, s.jobLogRepo)
 		worker := v1.Group("/worker")
 		{
