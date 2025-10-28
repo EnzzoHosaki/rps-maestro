@@ -52,9 +52,42 @@ jobs:
           - 5672:5672
           - 15672:15672
 
+    env:
+      MAESTRO_DB_HOST: localhost
+      MAESTRO_DB_PORT: 5432
+      MAESTRO_DB_USER: user
+      MAESTRO_DB_PASSWORD: password
+      MAESTRO_DB_NAME: maestro_db
+      MAESTRO_RABBITMQ_HOST: localhost
+      MAESTRO_RABBITMQ_PORT: 5672
+      MAESTRO_RABBITMQ_USER: guest
+      MAESTRO_RABBITMQ_PASSWORD: guest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Wait for services to be ready
+        run: |
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U user 2>/dev/null; then
+              echo "✅ PostgreSQL is ready"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 2
+          done
+          
+          echo "⏳ Waiting for RabbitMQ to be ready..."
+          for i in {1..30}; do
+            if nc -z localhost 5672 2>/dev/null; then
+              echo "✅ RabbitMQ is ready"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 2
+          done
 
       - name: Set up Go
         uses: actions/setup-go@v5
