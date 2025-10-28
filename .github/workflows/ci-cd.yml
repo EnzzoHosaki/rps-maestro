@@ -27,14 +27,14 @@ jobs:
       postgres:
         image: postgres:15-alpine
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: maestro_db
+          POSTGRES_USER: maestro
+          POSTGRES_PASSWORD: maestro_pass
+          POSTGRES_DB: maestro_test
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd="pg_isready -U maestro"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
         ports:
           - 5432:5432
 
@@ -53,11 +53,17 @@ jobs:
           - 15672:15672
 
     env:
+      DB_USER: maestro
+      DB_PASSWORD: maestro_pass
+      DB_NAME: maestro_test
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_DSN: postgres://maestro:maestro_pass@localhost:5432/maestro_test?sslmode=disable
       MAESTRO_DB_HOST: localhost
       MAESTRO_DB_PORT: 5432
-      MAESTRO_DB_USER: postgres
-      MAESTRO_DB_PASSWORD: postgres
-      MAESTRO_DB_NAME: maestro_db
+      MAESTRO_DB_USER: maestro
+      MAESTRO_DB_PASSWORD: maestro_pass
+      MAESTRO_DB_NAME: maestro_test
       MAESTRO_RABBITMQ_HOST: localhost
       MAESTRO_RABBITMQ_PORT: 5672
       MAESTRO_RABBITMQ_USER: guest
@@ -67,27 +73,36 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Wait for services to be ready
-              run: |
-                echo "⏳ Waiting for PostgreSQL to be ready..."
-                for i in {1..30}; do
-                  if pg_isready -h localhost -p 5432 -U "$MAESTRO_DB_USER" 2>/dev/null; then
-                    echo "✅ PostgreSQL is ready"
-                    break
-                  fi
-                  echo "Attempt $i/30..."
-                  sleep 2
-                done
-          
-          echo "⏳ Waiting for RabbitMQ to be ready..."
-          for i in {1..30}; do
-            if nc -z localhost 5672 2>/dev/null; then
-              echo "✅ RabbitMQ is ready"
-              break
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Wait for Postgres to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" >/dev/null 2>&1; then
+              echo "Postgres ready"
+              exit 0
             fi
-            echo "Attempt $i/30..."
+            echo "Waiting for Postgres... ($i/30)"
+            sleep 1
+          done
+          echo "Postgres did not become ready" >&2
+          exit 1
+        env:
+          PGPASSWORD: ${{ env.DB_PASSWORD }}
+
+      - name: Wait for RabbitMQ to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if nc -z "$MAESTRO_RABBITMQ_HOST" "$MAESTRO_RABBITMQ_PORT" >/dev/null 2>&1; then
+              echo "RabbitMQ ready"
+              exit 0
+            fi
+            echo "Waiting for RabbitMQ... ($i/30)"
             sleep 2
           done
+          echo "RabbitMQ did not become ready" >&2
+          exit 1
 
       - name: Set up Go
         uses: actions/setup-go@v5
