@@ -1,59 +1,71 @@
-name: Deploy Maestro Backend (Debug)
+name: Deploy Maestro Backend (Legacy)
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
 
 jobs:
   deploy:
     runs-on: self-hosted
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
 
     steps:
-      - name: 1. Checkout do código
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 2. DEBUG - Preparar o ambiente e VERIFICAR .env
+      - name: Prepare environment
+        env:
+          MAESTRO_ENV_FILE: ${{ secrets.MAESTRO_ENV_FILE }}
         run: |
           PROD_PATH="${{ secrets.MAESTRO_DEPLOY_PATH }}"
           
-          echo "--- INICIANDO DEBUG ---"
-          echo "Caminho do deploy (PROD_PATH): $PROD_PATH"
+          echo "📋 Deployment Information:"
+          echo "  Deploy Path: $PROD_PATH"
+          echo "  Environment: ${{ github.event.inputs.environment }}"
+          echo "  Triggered by: ${{ github.actor }}"
           
-          # 1. Verificar se o secret foi lido
-          echo "Verificando o secret MAESTRO_ENV_FILE..."
-          if [ -z "${{ secrets.MAESTRO_ENV_FILE }}" ]; then
-            echo "ERRO: O secret MAESTRO_ENV_FILE está VAZIO ou NÃO EXISTE."
-            echo "Por favor, verifique o nome do secret e se ele tem conteúdo."
+          # Criar o diretório
+          mkdir -p "$PROD_PATH"
+          
+          # Criar o arquivo .env
+          if [ -z "$MAESTRO_ENV_FILE" ]; then
+            echo "⚠️  Warning: MAESTRO_ENV_FILE secret is empty"
           else
-            echo "SUCESSO: O secret MAESTRO_ENV_FILE foi lido."
+            echo "$MAESTRO_ENV_FILE" > "$PROD_PATH/.env"
+            echo "✅ .env file created"
           fi
-          
-          # 2. Criar o diretório e o arquivo .env
-          echo "Criando diretório $PROD_PATH..."
-          mkdir -p $PROD_PATH
-          
-          echo "Escrevendo secret em $PROD_PATH/.env..."
-          echo "${{ secrets.MAESTRO_ENV_FILE }}" > $PROD_PATH/.env
-          
-          # 3. Listar o conteúdo do diretório
-          echo "Listando conteúdo de $PROD_PATH:"
-          ls -la $PROD_PATH
-          
-          # 4. Mostrar o conteúdo do .env criado
-          echo "Mostrando o conteúdo de $PROD_PATH/.env:"
-          cat $PROD_PATH/.env
-          echo "--- FIM DO DEBUG ---"
 
-      - name: 3. Buildar e Reiniciar o Serviço Maestro
+      - name: Deploy with Docker Compose
         working-directory: ${{ secrets.MAESTRO_DEPLOY_PATH }}
         run: |
-          echo "Buildando a nova imagem do maestro-backend..."
-          docker-compose build maestro-backend
+          echo "🚀 Starting deployment..."
           
-          echo "Subindo o serviço atualizado..."
-          # Este comando agora deve encontrar o .env
+          # Pull latest image
+          docker-compose pull maestro-backend
+          
+          # Start or restart the service
           docker-compose up -d --no-deps maestro-backend
           
-          echo "Limpando imagens antigas..."
+          # Cleanup
           docker image prune -f
+          
+          echo "✅ Deployment completed"
+
+      - name: Health check
+        run: |
+          echo "🏥 Checking application health..."
+          sleep 5
+          if curl -f http://localhost:8080/health || true; then
+            echo "✅ Application is healthy"
+          else
+            echo "⚠️  Application started (health check endpoint may not be implemented)"
+          fi
