@@ -20,6 +20,8 @@ jobs:
   lint-and-test:
     name: Lint & Test Go Code
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     services:
       postgres:
@@ -112,6 +114,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout code
@@ -153,6 +156,9 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     
     steps:
       - name: Checkout code
@@ -168,15 +174,18 @@ jobs:
 
       - name: Upload Trivy results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: github.event_name == 'push'
         with:
           sarif_file: 'trivy-results.sarif'
+          wait-for-processing: true
 
   # Job 4: Deploy (apenas para main branch e self-hosted)
   deploy:
     name: Deploy to Production
     runs-on: self-hosted
     needs: [lint-and-test, build-docker]
+    permissions:
+      contents: read
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     environment:
@@ -223,6 +232,8 @@ jobs:
   notify-failure:
     name: Notify Failure
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: failure()
     needs: [lint-and-test, build-docker, security-scan]
     
@@ -235,3 +246,36 @@ jobs:
           echo "Commit: ${{ github.sha }}"
           echo "Author: ${{ github.actor }}"
           echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  # Job 6: Comment on PR with results
+  pr-comment:
+    name: Comment PR Results
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    if: github.event_name == 'pull_request'
+    needs: [lint-and-test, build-docker, security-scan]
+    
+    steps:
+      - name: Comment PR with results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ needs.lint-and-test.result }}' === 'success' ? '✅' : '❌';
+            const comment = `## CI/CD Pipeline Results ${status}
+
+            | Check | Status |
+            |-------|--------|
+            | Lint & Tests | ${{ needs.lint-and-test.result === 'success' ? '✅ Passed' : '❌ Failed' }} |
+            | Docker Build | ${{ needs.build-docker.result === 'success' ? '✅ Built' : '❌ Failed' }} |
+            | Security Scan | ${{ needs.security-scan.result === 'success' ? '✅ No issues' : '⚠️ Check results' }} |
+
+            [View full workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
