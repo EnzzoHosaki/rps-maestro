@@ -36,24 +36,35 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 
-	// Configurar variáveis de ambiente
+	// Prefixo unificado
 	viper.SetEnvPrefix("MAESTRO")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
-	// Bind específico das variáveis de ambiente
-	viper.BindEnv("database.host", "MAESTRO_DB_HOST")
-	viper.BindEnv("database.port", "MAESTRO_DB_PORT")
-	viper.BindEnv("database.user", "MAESTRO_DB_USER")
-	viper.BindEnv("database.password", "MAESTRO_DB_PASSWORD")
-	viper.BindEnv("database.dbname", "MAESTRO_DB_NAME")
-	
-	viper.BindEnv("rabbitmq.host", "MAESTRO_RABBITMQ_HOST")
-	viper.BindEnv("rabbitmq.port", "MAESTRO_RABBITMQ_PORT")
-	viper.BindEnv("rabbitmq.user", "MAESTRO_RABBITMQ_USER")
-	viper.BindEnv("rabbitmq.password", "MAESTRO_RABBITMQ_PASSWORD")
-	
-	viper.BindEnv("server.port", "MAESTRO_SERVER_PORT")
+	// Bind completo com prefixo consistente
+	bindings := map[string]string{
+		"database.host":     "MAESTRO_DB_HOST",
+		"database.port":     "MAESTRO_DB_PORT",
+		"database.user":     "MAESTRO_DB_USER",
+		"database.password": "MAESTRO_DB_PASSWORD",
+		"database.dbname":   "MAESTRO_DB_NAME",
+		"rabbitmq.host":     "MAESTRO_RABBITMQ_HOST",
+		"rabbitmq.port":     "MAESTRO_RABBITMQ_PORT",
+		"rabbitmq.user":     "MAESTRO_RABBITMQ_USER",
+		"rabbitmq.password": "MAESTRO_RABBITMQ_PASSWORD",
+		"server.port":       "MAESTRO_SERVER_PORT",
+	}
+
+	for key, env := range bindings {
+		viper.BindEnv(key, env)
+	}
+
+	// Valores padrão para CI/CD e desenvolvimento
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", 5432)
+	viper.SetDefault("rabbitmq.host", "localhost")
+	viper.SetDefault("rabbitmq.port", 5672)
+	viper.SetDefault("server.port", 8000)
 
 	_ = viper.ReadInConfig()
 
