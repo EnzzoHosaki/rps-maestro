@@ -41,7 +41,6 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
-	// Bind completo com prefixo consistente
 	bindings := map[string]string{
 		"database.host":     "MAESTRO_DB_HOST",
 		"database.port":     "MAESTRO_DB_PORT",
@@ -59,7 +58,6 @@ func LoadConfig(path string) (config Config, err error) {
 		viper.BindEnv(key, env)
 	}
 
-	// Valores padrão para CI/CD e desenvolvimento
 	viper.SetDefault("database.host", "localhost")
 	viper.SetDefault("database.port", 5432)
 	viper.SetDefault("rabbitmq.host", "localhost")

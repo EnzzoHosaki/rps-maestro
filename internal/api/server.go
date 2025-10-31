@@ -55,6 +55,18 @@ func (s *Server) setupRoutes() {
 	{
 		v1.GET("/health", s.healthCheck)
 
+		// User endpoints
+		userHandler := handlers.NewUserHandler(s.userRepo)
+		users := v1.Group("/users")
+		{
+			users.POST("", userHandler.CreateUser)
+			users.GET("", userHandler.GetAllUsers)
+			users.GET("/email", userHandler.GetUserByEmail)
+			users.GET("/:id", userHandler.GetUserByID)
+			users.PUT("/:id", userHandler.UpdateUser)
+			users.DELETE("/:id", userHandler.DeleteUser)
+		}
+
 		automationHandler := handlers.NewAutomationHandler(s.automationRepo, s.jobRepo, s.queueClient)
 		automations := v1.Group("/automations")
 		{
