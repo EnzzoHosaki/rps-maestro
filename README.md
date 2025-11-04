@@ -9,9 +9,10 @@ Sistema de orquestração e gerenciamento de automações RPA (Robotic Process A
 - **Execução Assíncrona**: Jobs executados em background por workers
 - **Logs em Tempo Real**: Workers reportam logs durante execução
 - **API do Worker**: Endpoints HTTP para workers reportarem status e progresso
-- **Agendamento**: Suporte para execução agendada via cron expressions
+- **⏰ Agendamento Automático**: Sistema de scheduler com expressões cron (incluindo segundos)
 - **Filas Dinâmicas**: Cada automação pode ter sua própria fila RabbitMQ
 - **Rastreamento Completo**: Histórico de execução e logs armazenados
+- **Graceful Shutdown**: Encerramento seguro de scheduler e conexões
 
 ## 🏗️ Arquitetura
 

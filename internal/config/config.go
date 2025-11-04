@@ -36,7 +36,6 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 
-	// Prefixo unificado
 	viper.SetEnvPrefix("MAESTRO")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()

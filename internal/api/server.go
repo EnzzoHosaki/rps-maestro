@@ -55,7 +55,6 @@ func (s *Server) setupRoutes() {
 	{
 		v1.GET("/health", s.healthCheck)
 
-		// User endpoints
 		userHandler := handlers.NewUserHandler(s.userRepo)
 		users := v1.Group("/users")
 		{
