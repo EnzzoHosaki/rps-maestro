@@ -1,14 +1,16 @@
-// Local: rps-maestro/cmd/api/main.go
 package main
 
 import (
-	"fmt"
-	"log"
+	"context"
 	"time"
+
 	"github.com/EnzzoHosaki/rps-maestro/internal/api"
 	"github.com/EnzzoHosaki/rps-maestro/internal/config"
+	"github.com/EnzzoHosaki/rps-maestro/internal/logger"
 	"github.com/EnzzoHosaki/rps-maestro/internal/queue"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
+	"github.com/EnzzoHosaki/rps-maestro/internal/retry"
+	"github.com/rs/zerolog/log"
 )
 
 func connectWithRetry(cfg config.RabbitMQConfig, maxRetries int, delay time.Duration) (*queue.RabbitMQClient, error) {
@@ -20,7 +22,11 @@ func connectWithRetry(cfg config.RabbitMQConfig, maxRetries int, delay time.Dura
 		}
 		lastErr = err
 		if i < maxRetries-1 {
-			log.Printf("Tentativa %d/%d de conectar ao RabbitMQ falhou, tentando novamente em %v...", i+1, maxRetries, delay)
+			log.Warn().
+				Int("attempt", i+1).
+				Int("max", maxRetries).
+				Dur("retry_in", delay).
+				Msg("falha ao conectar ao RabbitMQ, tentando novamente...")
 			time.Sleep(delay)
 		}
 	}
@@ -30,32 +36,50 @@ func connectWithRetry(cfg config.RabbitMQConfig, maxRetries int, delay time.Dura
 func main() {
 	cfg, err := config.LoadConfig("./configs")
 	if err != nil {
-		log.Fatalf("não foi possível carregar a configuração: %v", err)
+		// logger ainda não iniciado — usa log padrão para este fatal
+		panic("não foi possível carregar a configuração: " + err.Error())
 	}
-	fmt.Println("Configurações carregadas com sucesso.")
+
+	logger.Init(cfg.Log.Level)
+	log.Info().Str("log_level", cfg.Log.Level).Msg("configurações carregadas")
 
 	repo, err := repository.NewPostgresRepository(cfg.Database)
 	if err != nil {
-		log.Fatalf("não foi possível conectar ao banco de dados: %v", err)
+		log.Fatal().Err(err).Msg("não foi possível conectar ao PostgreSQL")
 	}
 	defer repo.Close()
-	fmt.Println("Conexão com o PostgreSQL estabelecida com sucesso!")
+	log.Info().Msg("conexão com PostgreSQL estabelecida")
 
 	queueClient, err := connectWithRetry(cfg.RabbitMQ, 10, 3*time.Second)
 	if err != nil {
-		log.Fatalf("não foi possível conectar ao RabbitMQ após 10 tentativas: %v", err)
+		log.Fatal().Err(err).Msg("não foi possível conectar ao RabbitMQ após 10 tentativas")
 	}
 	defer queueClient.Close()
-	fmt.Println("Conexão com o RabbitMQ estabelecida com sucesso!")
-	
+
+	ctx := context.Background()
+
 	userRepo := repo.GetUserRepository()
 	automationRepo := repo.GetAutomationRepository()
 	jobRepo := repo.GetJobRepository()
 	jobLogRepo := repo.GetJobLogRepository()
 	scheduleRepo := repo.GetScheduleRepository()
 
-	server := api.NewServer(cfg.Server, userRepo, automationRepo, jobRepo, jobLogRepo, scheduleRepo, queueClient)
+	// Consumidor da DLQ — loga mensagens mortas
+	if err := queueClient.ConsumeDLQ(ctx, func(jobID, reason string) {
+		log.Warn().Str("job_id", jobID).Str("reason", reason).Msg("job dead-lettered")
+	}); err != nil {
+		log.Error().Err(err).Msg("erro ao iniciar consumidor da DLQ")
+	}
+
+	// Retry worker — re-enfileira jobs travados
+	retryWorker := retry.New(jobRepo, automationRepo, queueClient)
+	go retryWorker.Start(ctx)
+
+	server := api.NewServer(
+		cfg.Server, cfg.JWT, cfg.Worker,
+		userRepo, automationRepo, jobRepo, jobLogRepo, scheduleRepo,
+		queueClient,
+	)
 
 	server.Start()
-
 }

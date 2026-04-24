@@ -1,15 +1,14 @@
-// Local: rps-maestro/internal/models/models.go
 package models
 
 import (
 	"encoding/json"
 	"time"
 
-	"github.com/google/uuid" 
+	"github.com/google/uuid"
 )
 
 type User struct {
-	ID           int       `db:"id" json:"id"` 
+	ID           int       `db:"id" json:"id"`
 	Name         string    `db:"name" json:"name"`
 	Email        string    `db:"email" json:"email"`
 	PasswordHash string    `db:"password_hash" json:"-"`
@@ -32,10 +31,11 @@ type Automation struct {
 type Job struct {
 	ID           uuid.UUID       `db:"id" json:"id"`
 	AutomationID int             `db:"automation_id" json:"automationId"`
-	UserID       *int            `db:"user_id" json:"userId,omitempty"` 
+	UserID       *int            `db:"user_id" json:"userId,omitempty"`
 	Status       string          `db:"status" json:"status"`
 	Parameters   json.RawMessage `db:"parameters" json:"parameters,omitempty"`
 	Result       json.RawMessage `db:"result" json:"result,omitempty"`
+	RetryCount   int             `db:"retry_count" json:"retryCount"`
 	StartedAt    *time.Time      `db:"started_at" json:"startedAt,omitempty"`
 	CompletedAt  *time.Time      `db:"completed_at" json:"completedAt,omitempty"`
 	CreatedAt    time.Time       `db:"created_at" json:"createdAt"`

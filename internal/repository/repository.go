@@ -1,11 +1,11 @@
-// Local: rps-maestro/internal/repository/repository.go
 package repository
 
 import (
 	"context"
-	"github.com/EnzzoHosaki/rps-maestro/internal/models" 
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/EnzzoHosaki/rps-maestro/internal/models"
+	"github.com/google/uuid"
 )
 
 type UserRepository interface {
@@ -33,6 +33,8 @@ type JobRepository interface {
 	SetResult(ctx context.Context, id uuid.UUID, result []byte) error
 	SetStarted(ctx context.Context, id uuid.UUID) error
 	SetCompleted(ctx context.Context, id uuid.UUID) error
+	GetStuckJobs(ctx context.Context, maxAge time.Duration) ([]models.Job, error)
+	IncrementRetryCount(ctx context.Context, id uuid.UUID) error
 }
 
 type JobLogRepository interface {

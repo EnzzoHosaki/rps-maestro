@@ -1,8 +1,8 @@
-// Local: rps-maestro/internal/config/config.go
 package config
 
 import (
 	"strings"
+
 	"github.com/spf13/viper"
 )
 
@@ -10,6 +10,9 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	RabbitMQ RabbitMQConfig
+	JWT      JWTConfig
+	Worker   WorkerConfig
+	Log      LogConfig
 }
 
 type ServerConfig struct {
@@ -31,12 +34,24 @@ type RabbitMQConfig struct {
 	Password string
 }
 
+type JWTConfig struct {
+	Secret    string `mapstructure:"secret"`
+	ExpiresIn int    `mapstructure:"expires_in"` // horas
+}
+
+type WorkerConfig struct {
+	APIKey string `mapstructure:"apikey"`
+}
+
+type LogConfig struct {
+	Level string `mapstructure:"level"`
+}
+
 func LoadConfig(path string) (config Config, err error) {
 	viper.AddConfigPath(path)
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 
-	// Prefixo unificado
 	viper.SetEnvPrefix("MAESTRO")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
@@ -52,6 +67,10 @@ func LoadConfig(path string) (config Config, err error) {
 		"rabbitmq.user":     "MAESTRO_RABBITMQ_USER",
 		"rabbitmq.password": "MAESTRO_RABBITMQ_PASSWORD",
 		"server.port":       "MAESTRO_SERVER_PORT",
+		"worker.apikey":     "MAESTRO_WORKER_API_KEY",
+		"jwt.secret":        "MAESTRO_JWT_SECRET",
+		"jwt.expires_in":    "MAESTRO_JWT_EXPIRES_IN",
+		"log.level":         "MAESTRO_LOG_LEVEL",
 	}
 
 	for key, env := range bindings {
@@ -63,6 +82,8 @@ func LoadConfig(path string) (config Config, err error) {
 	viper.SetDefault("rabbitmq.host", "localhost")
 	viper.SetDefault("rabbitmq.port", 5672)
 	viper.SetDefault("server.port", 8000)
+	viper.SetDefault("jwt.expires_in", 24)
+	viper.SetDefault("log.level", "info")
 
 	_ = viper.ReadInConfig()
 
