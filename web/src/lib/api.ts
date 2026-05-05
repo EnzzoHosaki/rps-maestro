@@ -23,6 +23,22 @@ api.interceptors.response.use(
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type ParameterFieldType = "text" | "date" | "number" | "select" | "boolean" | "list";
+
+export type ListItemType = "text" | "number";
+
+export interface ParameterField {
+  name: string;
+  label: string;
+  type: ParameterFieldType;
+  required?: boolean;
+  options?: string[];
+  placeholder?: string;
+  itemType?: ListItemType;
+}
+
+export type ParameterSchema = ParameterField[];
+
 export interface Automation {
   id: number;
   name: string;
@@ -30,6 +46,7 @@ export interface Automation {
   scriptPath: string;
   queueName: string;
   defaultParams?: Record<string, unknown>;
+  parameterSchema?: ParameterSchema;
   createdAt: string;
   updatedAt: string;
 }
