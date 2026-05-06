@@ -135,8 +135,16 @@ func (h *AutomationHandler) ExecuteAutomation(c *gin.Context) {
 		return
 	}
 
+	var userID *int
+	if uid, ok := c.Get("user_id"); ok {
+		if id, ok := uid.(int); ok {
+			userID = &id
+		}
+	}
+
 	job := &models.Job{
 		AutomationID: automationID,
+		UserID:       userID,
 		Status:       "pending",
 		Parameters:   paramsJSON,
 	}
