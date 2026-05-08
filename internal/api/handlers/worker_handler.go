@@ -171,3 +171,24 @@ func (h *WorkerHandler) HandleJobFinish(c *gin.Context) {
 		"status":  finishRequest.Status,
 	})
 }
+
+// HandleCancellationCheck retorna {cancellation_requested: bool} para o worker
+// fazer poll periódico durante a execução de operações longas. Quando o usuário
+// solicita cancelamento via POST /jobs/:id/cancel, este endpoint passa a
+// retornar true e o worker deve abortar com graça e reportar
+// status="canceled" no /finish.
+func (h *WorkerHandler) HandleCancellationCheck(c *gin.Context) {
+	jobID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID do job inválido"})
+		return
+	}
+
+	requested, err := h.jobRepo.IsCancellationRequested(c.Request.Context(), jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Job não encontrado"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"cancellation_requested": requested})
+}

@@ -35,6 +35,10 @@ type JobRepository interface {
 	SetCompleted(ctx context.Context, id uuid.UUID) error
 	GetStuckJobs(ctx context.Context, maxAge time.Duration) ([]models.Job, error)
 	IncrementRetryCount(ctx context.Context, id uuid.UUID) error
+	List(ctx context.Context, filter models.JobListFilter) ([]models.Job, int, error)
+	RequestCancellation(ctx context.Context, id uuid.UUID) error
+	IsCancellationRequested(ctx context.Context, id uuid.UUID) (bool, error)
+	GetMetrics(ctx context.Context) (*models.JobMetrics, error)
 }
 
 type JobLogRepository interface {
