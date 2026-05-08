@@ -31,16 +31,39 @@ type Automation struct {
 }
 
 type Job struct {
-	ID           uuid.UUID       `db:"id" json:"id"`
-	AutomationID int             `db:"automation_id" json:"automationId"`
-	UserID       *int            `db:"user_id" json:"userId,omitempty"`
-	Status       string          `db:"status" json:"status"`
-	Parameters   json.RawMessage `db:"parameters" json:"parameters,omitempty"`
-	Result       json.RawMessage `db:"result" json:"result,omitempty"`
-	RetryCount   int             `db:"retry_count" json:"retryCount"`
-	StartedAt    *time.Time      `db:"started_at" json:"startedAt,omitempty"`
-	CompletedAt  *time.Time      `db:"completed_at" json:"completedAt,omitempty"`
-	CreatedAt    time.Time       `db:"created_at" json:"createdAt"`
+	ID                      uuid.UUID       `db:"id" json:"id"`
+	AutomationID            int             `db:"automation_id" json:"automationId"`
+	UserID                  *int            `db:"user_id" json:"userId,omitempty"`
+	Status                  string          `db:"status" json:"status"`
+	Parameters              json.RawMessage `db:"parameters" json:"parameters,omitempty"`
+	Result                  json.RawMessage `db:"result" json:"result,omitempty"`
+	RetryCount              int             `db:"retry_count" json:"retryCount"`
+	StartedAt               *time.Time      `db:"started_at" json:"startedAt,omitempty"`
+	CompletedAt             *time.Time      `db:"completed_at" json:"completedAt,omitempty"`
+	CancellationRequestedAt *time.Time      `db:"cancellation_requested_at" json:"cancellationRequestedAt,omitempty"`
+	CreatedAt               time.Time       `db:"created_at" json:"createdAt"`
+}
+
+// JobMetrics agrega contadores de jobs em janelas de tempo úteis para o dashboard.
+type JobMetrics struct {
+	Running         int     `json:"running"`
+	Pending         int     `json:"pending"`
+	CompletedToday  int     `json:"completedToday"`
+	FailedLast24h   int     `json:"failedLast24h"`
+	CanceledLast24h int     `json:"canceledLast24h"`
+	TotalLast24h    int     `json:"totalLast24h"`
+	SuccessRate24h  float64 `json:"successRate24h"`
+}
+
+// JobListFilter agrega os filtros suportados por JobRepository.List.
+type JobListFilter struct {
+	Status       *string
+	AutomationID *int
+	UserID       *int
+	Since        *time.Time
+	Until        *time.Time
+	Limit        int
+	Offset       int
 }
 
 type JobLog struct {

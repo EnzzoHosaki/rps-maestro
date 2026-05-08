@@ -17,6 +17,13 @@ type Claims struct {
 
 // JWTAuth valida Bearer tokens em todos os endpoints protegidos.
 // Se o secret estiver vazio (dev), a requisição passa sem validação.
+//
+// Aceita o token de duas formas, em ordem de prioridade:
+//  1. Header "Authorization: Bearer <token>" — preferido sempre que possível.
+//  2. Query string "?token=<token>" — necessário pra SSE no navegador
+//     (EventSource não suporta headers customizados). Cuidado: tokens em
+//     query string podem aparecer em logs de proxy. Usar apenas em rotas
+//     de longa duração onde é a única opção (ex.: /jobs/:id/logs/stream).
 func JWTAuth(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if secret == "" {
@@ -24,13 +31,15 @@ func JWTAuth(secret string) gin.HandlerFunc {
 			return
 		}
 
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		var tokenStr string
+		if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			tokenStr = strings.TrimPrefix(h, "Bearer ")
+		} else if q := c.Query("token"); q != "" {
+			tokenStr = q
+		} else {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token não fornecido"})
 			return
 		}
-
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
 		claims := &Claims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {

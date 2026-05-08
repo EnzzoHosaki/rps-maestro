@@ -108,6 +108,7 @@ func (s *Server) setupRoutes() {
 		worker.POST("/jobs/:id/start", workerHandler.HandleJobStart)
 		worker.POST("/jobs/:id/log", workerHandler.HandleJobLog)
 		worker.POST("/jobs/:id/finish", workerHandler.HandleJobFinish)
+		worker.GET("/jobs/:id/cancellation", workerHandler.HandleCancellationCheck)
 	}
 
 	protected := v1.Group("", middleware.JWTAuth(s.jwtCfg.Secret))
@@ -134,12 +135,19 @@ func (s *Server) setupRoutes() {
 		automations.POST("/:id/execute", automationHandler.ExecuteAutomation)
 	}
 
-	jobHandler := handlers.NewJobHandler(s.jobRepo, s.jobLogRepo)
+	jobHandler := handlers.NewJobHandler(s.jobRepo, s.jobLogRepo, s.automationRepo, s.queueClient)
 	jobs := protected.Group("/jobs")
 	{
+		jobs.GET("", jobHandler.ListJobs)
 		jobs.GET("/:id", jobHandler.GetJobByID)
 		jobs.GET("/:id/logs", jobHandler.GetJobLogs)
+		jobs.GET("/:id/logs/stream", jobHandler.StreamJobLogs)
+		jobs.POST("/:id/cancel", jobHandler.CancelJob)
+		jobs.POST("/:id/retry", jobHandler.RetryJob)
 	}
+
+	metricsHandler := handlers.NewMetricsHandler(s.jobRepo)
+	protected.GET("/metrics", metricsHandler.GetMetrics)
 
 	scheduleHandler := handlers.NewScheduleHandler(s.scheduleRepo, s.scheduler)
 	schedules := protected.Group("/schedules")
