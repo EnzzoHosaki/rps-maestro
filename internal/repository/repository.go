@@ -44,6 +44,7 @@ type JobRepository interface {
 type JobLogRepository interface {
 	Create(ctx context.Context, log *models.JobLog) error
 	GetByJobID(ctx context.Context, jobID uuid.UUID) ([]models.JobLog, error)
+	ListSince(ctx context.Context, jobID uuid.UUID, lastID int64, limit int) ([]models.JobLog, error)
 }
 
 type ScheduleRepository interface {

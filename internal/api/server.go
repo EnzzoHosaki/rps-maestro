@@ -141,6 +141,7 @@ func (s *Server) setupRoutes() {
 		jobs.GET("", jobHandler.ListJobs)
 		jobs.GET("/:id", jobHandler.GetJobByID)
 		jobs.GET("/:id/logs", jobHandler.GetJobLogs)
+		jobs.GET("/:id/logs/stream", jobHandler.StreamJobLogs)
 		jobs.POST("/:id/cancel", jobHandler.CancelJob)
 		jobs.POST("/:id/retry", jobHandler.RetryJob)
 	}

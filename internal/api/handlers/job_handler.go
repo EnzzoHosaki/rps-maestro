@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +13,29 @@ import (
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+)
+
+// terminalJobStatuses define os estados em que o stream SSE deve encerrar
+// após drenar os logs restantes.
+var terminalJobStatuses = map[string]bool{
+	"completed":             true,
+	"completed_no_invoices": true,
+	"failed":                true,
+	"canceled":              true,
+}
+
+const (
+	// sseLogPollInterval é o intervalo entre consultas no banco de logs novos.
+	sseLogPollInterval = 1 * time.Second
+	// sseHeartbeatInterval mantém a conexão viva através de proxies/LBs que
+	// derrubam conexões idle.
+	sseHeartbeatInterval = 15 * time.Second
+	// sseMaxStreamDuration é o teto absoluto pra um único cliente SSE evitar
+	// que conexões zumbis fiquem segurando recursos do servidor.
+	sseMaxStreamDuration = 60 * time.Minute
+	// sseLogBatchSize limita quantos logs vão num único ciclo de polling pra
+	// um cliente — evita bloquear o evento loop com dumps gigantes.
+	sseLogBatchSize = 200
 )
 
 type JobHandler struct {
@@ -246,4 +271,164 @@ func (h *JobHandler) RetryJob(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusAccepted, newJob)
+}
+
+// StreamJobLogs serve logs em tempo real via Server-Sent Events.
+//
+// Protocolo:
+//
+//	event: log
+//	data: {"id":42,"jobId":"...","timestamp":"...","level":"INFO","message":"..."}
+//
+//	event: status
+//	data: {"status":"running"}
+//
+//	event: end
+//	data: {"status":"completed"}
+//
+//	: ping  (heartbeat — comentário SSE, ignorado pelo cliente)
+//
+// Comportamento:
+//
+//   - Faz dump inicial de todo o histórico de logs do job.
+//   - Em seguida, faz polling no banco a cada sseLogPollInterval procurando
+//     logs com id > último visto e os emite.
+//   - Verifica o status do job na mesma cadência. Quando o status entra em
+//     estado terminal (completed/failed/canceled/...), drena uma última vez
+//     e envia "event: end".
+//   - Heartbeat (linha de comentário SSE) a cada sseHeartbeatInterval pra
+//     evitar que proxies derrubem a conexão por idle.
+//   - Respeita disconnect do cliente via c.Request.Context().Done().
+//   - Hard cap em sseMaxStreamDuration por segurança.
+//
+// Autenticação: aceita JWT via header Authorization OU query string ?token=
+// (necessário pra EventSource do navegador, ver middleware.JWTAuth).
+func (h *JobHandler) StreamJobLogs(c *gin.Context) {
+	jobID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	// Confirma que o job existe antes de comprometer a resposta com headers SSE.
+	job, err := h.jobRepo.GetByID(c.Request.Context(), jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Job não encontrado"})
+		return
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	// Desliga buffering de proxies (nginx).
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
+	clientCtx := c.Request.Context()
+	deadline := time.Now().Add(sseMaxStreamDuration)
+	heartbeatAt := time.Now().Add(sseHeartbeatInterval)
+	lastLogID := int64(0)
+	currentStatus := job.Status
+	terminalDrained := false
+
+	// Status inicial.
+	if !writeSSE(c.Writer, "status", map[string]string{"status": currentStatus}) {
+		return
+	}
+
+	// Stream principal. c.Stream retorna quando a função retorna false ou quando
+	// o cliente desconecta. Aqui controlamos manualmente porque queremos polling
+	// com tempo, não eventos.
+	c.Stream(func(w io.Writer) bool {
+		// Disconnect do cliente.
+		if clientCtx.Err() != nil {
+			return false
+		}
+		// Hard timeout.
+		if time.Now().After(deadline) {
+			_ = writeSSEData(w, "end", map[string]string{
+				"status": currentStatus,
+				"reason": "max_duration_reached",
+			})
+			return false
+		}
+
+		// 1. Drena novos logs.
+		logs, err := h.jobLogRepo.ListSince(clientCtx, jobID, lastLogID, sseLogBatchSize)
+		if err != nil {
+			_ = writeSSEData(w, "error", map[string]string{"error": err.Error()})
+			return false
+		}
+		for _, l := range logs {
+			if !writeSSE(w, "log", l) {
+				return false
+			}
+			lastLogID = l.ID
+		}
+
+		// 2. Heartbeat pra manter conexão viva atravessando proxies idle.
+		if time.Now().After(heartbeatAt) {
+			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				return false
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			heartbeatAt = time.Now().Add(sseHeartbeatInterval)
+		}
+
+		// 3. Atualiza status do job.
+		fresh, err := h.jobRepo.GetByID(clientCtx, jobID)
+		if err == nil && fresh.Status != currentStatus {
+			currentStatus = fresh.Status
+			_ = writeSSE(w, "status", map[string]string{"status": currentStatus})
+		}
+
+		// 4. Se entrou em estado terminal, faz uma última varredura e encerra.
+		if terminalJobStatuses[currentStatus] {
+			if !terminalDrained {
+				// Mais um pulo no banco (sem esperar o próximo poll) pra pegar
+				// o último log que o worker emitiu antes de chamar /finish.
+				late, err := h.jobLogRepo.ListSince(clientCtx, jobID, lastLogID, sseLogBatchSize)
+				if err == nil {
+					for _, l := range late {
+						if !writeSSE(w, "log", l) {
+							return false
+						}
+						lastLogID = l.ID
+					}
+				}
+				terminalDrained = true
+			}
+			_ = writeSSEData(w, "end", map[string]string{"status": currentStatus})
+			return false
+		}
+
+		// 5. Aguarda antes do próximo ciclo, respeitando cancel do cliente.
+		select {
+		case <-clientCtx.Done():
+			return false
+		case <-time.After(sseLogPollInterval):
+			return true
+		}
+	})
+}
+
+// writeSSE serializa o payload em JSON e escreve um evento SSE; retorna false
+// se a escrita falhar (cliente desconectou).
+func writeSSE(w io.Writer, event string, payload any) bool {
+	return writeSSEData(w, event, payload) == nil
+}
+
+func writeSSEData(w io.Writer, event string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, body); err != nil {
+		return err
+	}
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
 }
