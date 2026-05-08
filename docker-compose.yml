@@ -53,7 +53,8 @@ services:
       # protegidas como /automations, /jobs, /schedules). Gere com:
       #   openssl rand -base64 48
       - MAESTRO_JWT_SECRET=${MAESTRO_JWT_SECRET:?defina MAESTRO_JWT_SECRET no .env (openssl rand -base64 48)}
-      - MAESTRO_JWT_EXPIRES_IN=${MAESTRO_JWT_EXPIRES_IN:-24h}
+      # Tempo de vida do token em HORAS (inteiro). Default 24.
+      - MAESTRO_JWT_EXPIRES_IN=${MAESTRO_JWT_EXPIRES_IN:-24}
     depends_on:
       postgres:
         condition: service_healthy
