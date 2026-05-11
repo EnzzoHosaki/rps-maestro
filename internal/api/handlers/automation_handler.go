@@ -110,6 +110,48 @@ func (h *AutomationHandler) DeleteAutomation(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// GetLastParamsForUser retorna os parâmetros do job mais recente que o usuário
+// autenticado executou para essa automação. Retorna `parameters: null` se nunca
+// executou — o frontend usa pra montar a cascata defaults → lastParams → vazio.
+func (h *AutomationHandler) GetLastParamsForUser(c *gin.Context) {
+	idParam := c.Param("id")
+	automationID, err := strconv.Atoi(idParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	uid, ok := c.Get("user_id")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuário não autenticado"})
+		return
+	}
+	userID, ok := uid.(int)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ID de usuário inválido"})
+		return
+	}
+
+	rawParams, err := h.jobRepo.GetLastParamsForUser(c.Request.Context(), automationID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar últimos parâmetros: " + err.Error()})
+		return
+	}
+
+	if rawParams == nil {
+		c.JSON(http.StatusOK, gin.H{"parameters": nil})
+		return
+	}
+
+	var params map[string]interface{}
+	if err := json.Unmarshal(rawParams, &params); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao decodificar parâmetros: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"parameters": params})
+}
+
 func (h *AutomationHandler) ExecuteAutomation(c *gin.Context) {
 	idParam := c.Param("id")
 	automationID, err := strconv.Atoi(idParam)
