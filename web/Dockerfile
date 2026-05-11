@@ -1,18 +1,31 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+# Junta deps + build no mesmo stage pra evitar o COPY --from=deps node_modules
+# (que sozinho leva ~50s pelo volume de arquivos pequenos). O image final
+# continua enxuto porque o stage `runner` só copia .next/standalone, .next/static
+# e public — node_modules de build NÃO chega no runtime.
 
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+
+COPY package.json package-lock.json ./
+
+# Cache mount no /root/.npm acelera npm ci em mudanças subsequentes de
+# package.json. --prefer-offline força usar o cache, --no-audit pula o
+# passo de audit que é puramente network-bound.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline --no-audit
+
 COPY . .
+
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+
+# Cache do Next.js (.next/cache) persiste entre builds — em rebuilds onde
+# poucos arquivos mudaram, Turbopack reaproveita módulos pré-compilados.
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
