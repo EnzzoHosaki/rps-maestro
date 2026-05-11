@@ -51,15 +51,24 @@ export interface Automation {
   updatedAt: string;
 }
 
+export type JobStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "completed_no_invoices"
+  | "failed"
+  | "canceled";
+
 export interface Job {
   id: string;
   automationId: number;
   userId?: number;
-  status: "pending" | "running" | "completed" | "failed";
+  status: JobStatus;
   parameters?: Record<string, unknown>;
   result?: Record<string, unknown>;
   startedAt?: string;
   completedAt?: string;
+  cancellationRequestedAt?: string;
   createdAt: string;
   retryCount?: number;
 }
@@ -70,6 +79,33 @@ export interface JobLog {
   timestamp: string;
   level: string;
   message: string;
+}
+
+export interface JobListFilter {
+  status?: JobStatus;
+  automationId?: number;
+  userId?: number;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface JobListResponse {
+  items: Job[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface JobMetrics {
+  running: number;
+  pending: number;
+  completedToday: number;
+  failedLast24h: number;
+  canceledLast24h: number;
+  totalLast24h: number;
+  successRate24h: number;
 }
 
 export interface Schedule {
@@ -112,13 +148,108 @@ export const automationsApi = {
   delete: (id: number) => api.delete(`/automations/${id}`),
   execute: (id: number, params?: Record<string, unknown>) =>
     api.post<Job>(`/automations/${id}/execute`, params ?? {}),
+  lastParams: (id: number) =>
+    api.get<{ parameters: Record<string, unknown> | null }>(`/automations/${id}/last-params`),
 };
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 
+function jobListParams(filter: JobListFilter): Record<string, string | number> {
+  const p: Record<string, string | number> = {};
+  if (filter.status) p.status = filter.status;
+  if (filter.automationId !== undefined) p.automation_id = filter.automationId;
+  if (filter.userId !== undefined) p.user_id = filter.userId;
+  if (filter.since) p.since = filter.since;
+  if (filter.until) p.until = filter.until;
+  if (filter.limit !== undefined) p.limit = filter.limit;
+  if (filter.offset !== undefined) p.offset = filter.offset;
+  return p;
+}
+
 export const jobsApi = {
+  list: (filter: JobListFilter = {}) =>
+    api.get<JobListResponse>("/jobs", { params: jobListParams(filter) }),
   get: (id: string) => api.get<Job>(`/jobs/${id}`),
   logs: (id: string) => api.get<JobLog[]>(`/jobs/${id}/logs`),
+  cancel: (id: string) => api.post<Job>(`/jobs/${id}/cancel`),
+  retry: (id: string) => api.post<Job>(`/jobs/${id}/retry`),
+  /**
+   * streamLogs abre uma conexão SSE em /jobs/:id/logs/stream e dispara
+   * callbacks conforme os eventos `log`, `status`, `end` e `error` chegam.
+   * EventSource não suporta headers, então o token JWT vai em `?token=`.
+   * Retorna função de cleanup que fecha o EventSource — sempre chame no
+   * unmount ou ao trocar de job pra não vazar conexão.
+   */
+  streamLogs: (
+    id: string,
+    callbacks: {
+      onLog?: (log: JobLog) => void;
+      onStatus?: (status: string) => void;
+      onEnd?: (status: string) => void;
+      onError?: (err: { error: string } | Event) => void;
+    }
+  ): (() => void) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const url = new URL(`${BASE_URL}/jobs/${id}/logs/stream`);
+    if (token) url.searchParams.set("token", token);
+
+    const es = new EventSource(url.toString());
+
+    if (callbacks.onLog) {
+      es.addEventListener("log", (e) => {
+        try {
+          callbacks.onLog!(JSON.parse((e as MessageEvent).data));
+        } catch (err) {
+          callbacks.onError?.({ error: `falha ao parsear log: ${String(err)}` });
+        }
+      });
+    }
+    if (callbacks.onStatus) {
+      es.addEventListener("status", (e) => {
+        try {
+          const { status } = JSON.parse((e as MessageEvent).data);
+          callbacks.onStatus!(status);
+        } catch (err) {
+          callbacks.onError?.({ error: `falha ao parsear status: ${String(err)}` });
+        }
+      });
+    }
+    if (callbacks.onEnd || callbacks.onStatus) {
+      es.addEventListener("end", (e) => {
+        try {
+          const { status } = JSON.parse((e as MessageEvent).data);
+          callbacks.onStatus?.(status);
+          callbacks.onEnd?.(status);
+        } catch (err) {
+          callbacks.onError?.({ error: `falha ao parsear end: ${String(err)}` });
+        } finally {
+          es.close();
+        }
+      });
+    }
+    es.addEventListener("error", (e) => {
+      // Pode ser tanto um event de erro de conexão (sem .data) quanto um
+      // `event: error` enviado pelo servidor (com payload JSON em .data).
+      const data = (e as MessageEvent).data;
+      if (typeof data === "string" && data.length > 0) {
+        try {
+          callbacks.onError?.(JSON.parse(data));
+          return;
+        } catch {
+          // fall through pra reportar como Event bruto
+        }
+      }
+      callbacks.onError?.(e);
+    });
+
+    return () => es.close();
+  },
+};
+
+// ── Metrics ───────────────────────────────────────────────────────────────────
+
+export const metricsApi = {
+  get: () => api.get<JobMetrics>("/metrics"),
 };
 
 // ── Schedules ─────────────────────────────────────────────────────────────────
