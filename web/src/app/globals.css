@@ -10,6 +10,14 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Paleta RPS — sage (#a7baa6) + olive (#829871) + neutros. */
+  --color-rps-sage: #a7baa6;
+  --color-rps-sage-soft: #d6e0d5;
+  --color-rps-sage-dark: #748a72;
+  --color-rps-olive: #829871;
+  --color-rps-olive-soft: #b9c9aa;
+  --color-rps-olive-dark: #54644a;
 }
 
 @media (prefers-color-scheme: dark) {
