@@ -6,7 +6,7 @@ import type { ParameterField, ParameterSchema } from "@/lib/api";
 type Values = Record<string, string | boolean>;
 
 const inputCls =
-  "w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400";
+  "w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none";
 
 function isoToBr(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -89,7 +89,7 @@ export function DynamicParameterForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       {schema.length === 0 && (
-        <p className="text-sm text-gray-500">Nenhum parâmetro definido para esta automação.</p>
+        <p className="text-sm text-gray-600">Nenhum parâmetro definido para esta automação.</p>
       )}
 
       {schema.map((f) => (
@@ -155,7 +155,7 @@ export function DynamicParameterForm({
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded bg-green-600 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+        className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
       >
         {loading ? "Enviando…" : submitLabel}
       </button>

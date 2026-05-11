@@ -21,7 +21,7 @@ const DATE_DDMMYYYY = /^\d{2}\/\d{2}\/\d{4}$/;
 const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 const inputCls =
-  "rounded border border-gray-300 px-2 py-1 text-xs text-gray-900 placeholder-gray-400";
+  "rounded border border-gray-300 px-2 py-1 text-xs text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none";
 
 function snakeToLabel(name: string): string {
   return name
@@ -127,8 +127,8 @@ export function ParameterSchemaEditor({
       </div>
 
       {pasting && (
-        <div className="rounded border border-blue-200 bg-blue-50 p-2 space-y-2">
-          <p className="text-xs text-gray-700">
+        <div className="rounded border border-rps-sage bg-rps-sage-soft p-2 space-y-2">
+          <p className="text-xs text-rps-olive-dark">
             Cole um JSON de exemplo do payload da automação. Os tipos serão inferidos automaticamente
             (você pode ajustar depois).
           </p>
@@ -137,9 +137,9 @@ export function ParameterSchemaEditor({
             onChange={(e) => setPasted(e.target.value)}
             rows={6}
             placeholder='{ "stores": [4814, 6861], "start_date": "26/04/2026", "headless": true }'
-            className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-mono text-gray-900 placeholder-gray-400"
+            className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-mono text-gray-900 placeholder-gray-500"
           />
-          {pasteErr && <p className="text-xs text-red-600">{pasteErr}</p>}
+          {pasteErr && <p className="text-xs text-red-700">{pasteErr}</p>}
           <div className="flex gap-2 justify-end">
             <button
               type="button"
@@ -153,7 +153,7 @@ export function ParameterSchemaEditor({
               type="button"
               onClick={() => applyPaste("replace")}
               disabled={!pasted.trim()}
-              className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded bg-rps-olive-dark px-2 py-1 text-xs text-white hover:bg-rps-olive-darker disabled:opacity-50"
             >
               Substituir schema
             </button>
@@ -162,7 +162,7 @@ export function ParameterSchemaEditor({
       )}
 
       {value.length === 0 && !pasting && (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-600">
           Nenhum campo. Adicione campos que o worker espera (ex.: stores, start_date).
         </p>
       )}
