@@ -30,7 +30,7 @@ function Modal({
       <div className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl`}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-900 text-xl leading-none">
             ×
           </button>
         </div>
@@ -72,7 +72,7 @@ function ScheduleForm({
           onChange={(e) =>
             setForm((f) => ({ ...f, automationId: Number(e.target.value), parameters: {} }))
           }
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none focus:ring-2 focus:ring-rps-olive-dark"
         >
           <option value={0} disabled>
             Selecione…
@@ -92,7 +92,7 @@ function ScheduleForm({
           value={form.cronExpression}
           onChange={(e) => setForm((f) => ({ ...f, cronExpression: e.target.value }))}
           placeholder="0 8 * * *"
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none focus:ring-2 focus:ring-rps-olive-dark"
         />
         <div className="mt-1 flex flex-wrap gap-1">
           {CRON_PRESETS.map((p) => (
@@ -125,7 +125,7 @@ function ScheduleForm({
         <div className="border-t pt-3">
           <p className="text-xs font-medium text-gray-600 mb-2">Parâmetros</p>
           {schema.length === 0 ? (
-            <p className="text-xs text-gray-400">Esta automação não define parâmetros.</p>
+            <p className="text-xs text-gray-600">Esta automação não define parâmetros.</p>
           ) : (
             <DynamicParameterForm
               schema={schema}
@@ -143,7 +143,7 @@ function ScheduleForm({
           type="button"
           onClick={() => onSubmit(form)}
           disabled={loading || form.automationId === 0 || !form.cronExpression}
-          className="w-full rounded bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
         >
           {loading ? "Salvando…" : "Salvar agendamento"}
         </button>
@@ -210,13 +210,13 @@ export default function SchedulesPage() {
         <h1 className="text-2xl font-bold">Agendamentos</h1>
         <button
           onClick={() => setCreating(true)}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
         >
           + Novo agendamento
         </button>
       </div>
 
-      {isLoading && <p className="text-sm text-gray-400">Carregando…</p>}
+      {isLoading && <p className="text-sm text-gray-600">Carregando…</p>}
 
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
         <table className="w-full text-sm">
@@ -234,7 +234,7 @@ export default function SchedulesPage() {
               <tr key={s.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{getAutoName(s.automationId)}</td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.cronExpression}</td>
-                <td className="px-4 py-3 text-gray-400">
+                <td className="px-4 py-3 text-gray-500">
                   {s.nextRunAt
                     ? formatDistanceToNow(new Date(s.nextRunAt), { locale: ptBR, addSuffix: true })
                     : "—"}
@@ -273,7 +273,7 @@ export default function SchedulesPage() {
             ))}
             {schedules?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-gray-400 text-sm">
+                <td colSpan={5} className="px-4 py-6 text-center text-gray-600 text-sm">
                   Nenhum agendamento cadastrado.
                 </td>
               </tr>

@@ -150,11 +150,11 @@ function JobPanel({
           <p className="text-sm font-semibold text-gray-900">
             {automation?.name ?? "Job"}
           </p>
-          <p className="truncate font-mono text-xs text-gray-400">{jobId}</p>
+          <p className="truncate font-mono text-xs text-gray-500">{jobId}</p>
         </div>
         <button
           onClick={onClose}
-          className="ml-3 shrink-0 text-xl leading-none text-gray-400 hover:text-gray-700"
+          className="ml-3 shrink-0 text-xl leading-none text-gray-500 hover:text-gray-900"
           aria-label="Fechar"
         >
           ×
@@ -343,7 +343,7 @@ export default function JobsPage() {
               onClick={() => changeStatusFilter(s.value)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 statusFilter === s.value
-                  ? "bg-rps-olive text-white"
+                  ? "bg-rps-olive-dark text-white"
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
@@ -357,7 +357,7 @@ export default function JobsPage() {
           onChange={(e) =>
             changeAutomationFilter(e.target.value === "all" ? "all" : Number(e.target.value))
           }
-          className="rounded border border-gray-300 bg-white px-2 py-1 text-sm focus:border-rps-olive focus:outline-none"
+          className="rounded border border-gray-300 bg-white px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
         >
           <option value="all">Todas automações</option>
           {automations.map((a) => (
@@ -403,7 +403,7 @@ export default function JobsPage() {
                       {STATUS_LABEL[j.status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-400">
+                  <td className="px-4 py-3 text-gray-500">
                     {formatDistanceToNow(new Date(j.createdAt), {
                       locale: ptBR,
                       addSuffix: true,
@@ -442,14 +442,14 @@ export default function JobsPage() {
             })}
             {!listQuery.isLoading && items.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-400">
+                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-600">
                   Nenhum job encontrado com os filtros atuais.
                 </td>
               </tr>
             )}
             {listQuery.isLoading && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-400">
+                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-600">
                   Carregando…
                 </td>
               </tr>

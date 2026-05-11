@@ -54,7 +54,7 @@ function Modal({
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700">
+          <button onClick={onClose} className="text-xl leading-none text-gray-500 hover:text-gray-900">
             ×
           </button>
         </div>
@@ -131,7 +131,7 @@ function AutomationForm({
             required
             value={form[k]}
             onChange={set(k)}
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-rps-olive focus:outline-none"
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
           />
         </div>
       ))}
@@ -141,7 +141,7 @@ function AutomationForm({
           value={form.description}
           onChange={set("description")}
           rows={2}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-rps-olive focus:outline-none"
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
       </div>
 
@@ -168,7 +168,7 @@ function AutomationForm({
           onChange={set("defaultParamsJson")}
           rows={4}
           placeholder='{ "stores": [4814, 6861], "headless": true }'
-          className="w-full rounded border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 placeholder-gray-400 focus:border-rps-olive focus:outline-none"
+          className="w-full rounded border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
         {defaultParamsErr && <p className="mt-1 text-xs text-red-600">{defaultParamsErr}</p>}
         <p className="mt-1 text-xs text-gray-500">
@@ -179,7 +179,7 @@ function AutomationForm({
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded bg-rps-olive py-2 text-sm font-medium text-white hover:bg-rps-olive-dark disabled:opacity-50"
+        className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
       >
         {loading ? "Salvando…" : "Salvar"}
       </button>
@@ -277,7 +277,7 @@ function ExecuteModal({
       )}
 
       {source === "loading" ? (
-        <p className="text-sm text-gray-400">Carregando últimos valores…</p>
+        <p className="text-sm text-gray-600">Carregando últimos valores…</p>
       ) : (
         <DynamicParameterForm
           // key força remount quando troca a fonte (last → defaults), pra
@@ -351,13 +351,13 @@ export default function AutomationsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Automações</h1>
         <button
           onClick={() => setCreating(true)}
-          className="rounded bg-rps-olive px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-dark"
+          className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
         >
           + Nova automação
         </button>
       </div>
 
-      {isLoading && <p className="text-sm text-gray-400">Carregando…</p>}
+      {isLoading && <p className="text-sm text-gray-600">Carregando…</p>}
 
       <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
         <table className="w-full text-sm">
@@ -376,7 +376,7 @@ export default function AutomationsPage() {
                 <td className="px-4 py-3 font-medium text-gray-900">{a.name}</td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">{a.scriptPath}</td>
                 <td className="px-4 py-3 text-gray-500">{a.queueName}</td>
-                <td className="px-4 py-3 text-gray-400">
+                <td className="px-4 py-3 text-gray-500">
                   {formatDistanceToNow(new Date(a.createdAt), { locale: ptBR, addSuffix: true })}
                 </td>
                 <td className="px-4 py-3">
@@ -407,7 +407,7 @@ export default function AutomationsPage() {
             ))}
             {automations?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">
+                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-600">
                   Nenhuma automação cadastrada.
                 </td>
               </tr>
