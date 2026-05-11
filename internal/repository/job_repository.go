@@ -236,6 +236,26 @@ func (r *PostgresJobRepository) IsCancellationRequested(ctx context.Context, id 
 	return requested, nil
 }
 
+// GetLastParamsForUser retorna os parâmetros do job mais recente que o usuário
+// executou para essa automação. Retorna (nil, nil) se o usuário nunca executou
+// — assim o handler pode devolver `parameters: null` sem precisar de 404.
+func (r *PostgresJobRepository) GetLastParamsForUser(ctx context.Context, automationID, userID int) ([]byte, error) {
+	sql := `SELECT parameters FROM jobs
+	        WHERE automation_id = $1 AND user_id = $2
+	        ORDER BY created_at DESC
+	        LIMIT 1`
+
+	var params []byte
+	err := r.db.QueryRow(ctx, sql, automationID, userID).Scan(&params)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("erro ao buscar últimos parâmetros: %w", err)
+	}
+	return params, nil
+}
+
 // GetMetrics consulta agregados úteis para o dashboard em uma única query.
 func (r *PostgresJobRepository) GetMetrics(ctx context.Context) (*models.JobMetrics, error) {
 	sql := `

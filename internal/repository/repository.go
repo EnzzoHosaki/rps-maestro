@@ -39,6 +39,7 @@ type JobRepository interface {
 	RequestCancellation(ctx context.Context, id uuid.UUID) error
 	IsCancellationRequested(ctx context.Context, id uuid.UUID) (bool, error)
 	GetMetrics(ctx context.Context) (*models.JobMetrics, error)
+	GetLastParamsForUser(ctx context.Context, automationID, userID int) ([]byte, error)
 }
 
 type JobLogRepository interface {

@@ -133,6 +133,7 @@ func (s *Server) setupRoutes() {
 		automations.PUT("/:id", automationHandler.UpdateAutomation)
 		automations.DELETE("/:id", automationHandler.DeleteAutomation)
 		automations.POST("/:id/execute", automationHandler.ExecuteAutomation)
+		automations.GET("/:id/last-params", automationHandler.GetLastParamsForUser)
 	}
 
 	jobHandler := handlers.NewJobHandler(s.jobRepo, s.jobLogRepo, s.automationRepo, s.queueClient)
