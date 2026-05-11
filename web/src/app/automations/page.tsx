@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { automationsApi, type Automation, type ParameterSchema } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -14,6 +15,7 @@ type FormData = {
   scriptPath: string;
   queueName: string;
   parameterSchema: ParameterSchema;
+  defaultParamsJson: string;
 };
 
 const empty: FormData = {
@@ -22,7 +24,17 @@ const empty: FormData = {
   scriptPath: "",
   queueName: "automation_jobs",
   parameterSchema: [],
+  defaultParamsJson: "",
 };
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (typeof err === "object" && err && "response" in err) {
+    const r = (err as { response?: { data?: { error?: string } } }).response;
+    if (r?.data?.error) return r.data.error;
+  }
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
 
 function Modal({
   title,
@@ -42,7 +54,7 @@ function Modal({
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">
+          <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700">
             ×
           </button>
         </div>
@@ -52,47 +64,84 @@ function Modal({
   );
 }
 
+function paramsToJsonField(p?: Record<string, unknown>): string {
+  if (!p || Object.keys(p).length === 0) return "";
+  return JSON.stringify(p, null, 2);
+}
+
 function AutomationForm({
   initial,
   onSubmit,
   loading,
 }: {
   initial: FormData;
-  onSubmit: (d: FormData) => void;
+  onSubmit: (d: FormData, defaultParams?: Record<string, unknown>) => void;
   loading: boolean;
 }) {
   const [form, setForm] = useState(initial);
-  const set = (k: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+  const [defaultParamsErr, setDefaultParamsErr] = useState<string | null>(null);
+
+  const set =
+    (k: keyof FormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    let defaultParams: Record<string, unknown> | undefined;
+    const raw = form.defaultParamsJson.trim();
+    if (raw !== "") {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          setDefaultParamsErr("Default params precisa ser um objeto JSON.");
+          return;
+        }
+        defaultParams = parsed as Record<string, unknown>;
+      } catch (err) {
+        setDefaultParamsErr(err instanceof Error ? err.message : "JSON inválido");
+        return;
+      }
+    }
+    setDefaultParamsErr(null);
+    onSubmit(form, defaultParams);
+  };
+
+  const formatDefaultParams = () => {
+    const raw = form.defaultParamsJson.trim();
+    if (raw === "") return;
+    try {
+      const parsed = JSON.parse(raw);
+      setForm((f) => ({ ...f, defaultParamsJson: JSON.stringify(parsed, null, 2) }));
+      setDefaultParamsErr(null);
+    } catch (err) {
+      setDefaultParamsErr(err instanceof Error ? err.message : "JSON inválido");
+    }
+  };
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit(form);
-      }}
-      className="space-y-3"
-    >
+    <form onSubmit={handleSubmit} className="space-y-3">
       {(["name", "scriptPath", "queueName"] as const).map((k) => (
         <div key={k}>
-          <label className="block text-xs font-medium text-gray-600 mb-1 capitalize">
+          <label className="mb-1 block text-xs font-medium text-gray-600 capitalize">
             {k === "scriptPath" ? "Caminho do script" : k === "queueName" ? "Fila" : "Nome"}
           </label>
           <input
             required
             value={form[k]}
             onChange={set(k)}
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-rps-olive focus:outline-none"
           />
         </div>
       ))}
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Descrição</label>
+        <label className="mb-1 block text-xs font-medium text-gray-600">Descrição</label>
         <textarea
           value={form.description}
           onChange={set("description")}
           rows={2}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-rps-olive focus:outline-none"
         />
       </div>
 
@@ -101,14 +150,147 @@ function AutomationForm({
         onChange={(s) => setForm((f) => ({ ...f, parameterSchema: s }))}
       />
 
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <label className="block text-xs font-medium text-gray-600">
+            Default params (JSON, opcional)
+          </label>
+          <button
+            type="button"
+            onClick={formatDefaultParams}
+            className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200"
+          >
+            Validar e formatar
+          </button>
+        </div>
+        <textarea
+          value={form.defaultParamsJson}
+          onChange={set("defaultParamsJson")}
+          rows={4}
+          placeholder='{ "stores": [4814, 6861], "headless": true }'
+          className="w-full rounded border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 placeholder-gray-400 focus:border-rps-olive focus:outline-none"
+        />
+        {defaultParamsErr && <p className="mt-1 text-xs text-red-600">{defaultParamsErr}</p>}
+        <p className="mt-1 text-xs text-gray-500">
+          Aplicado automaticamente quando o usuário abre &quot;Executar&quot; sem nunca ter executado essa automação.
+        </p>
+      </div>
+
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="w-full rounded bg-rps-olive py-2 text-sm font-medium text-white hover:bg-rps-olive-dark disabled:opacity-50"
       >
         {loading ? "Salvando…" : "Salvar"}
       </button>
     </form>
+  );
+}
+
+type ParamSource = "loading" | "last" | "defaults" | "empty";
+
+function ExecuteModal({
+  automation,
+  onClose,
+}: {
+  automation: Automation;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const hasDefaults = useMemo(
+    () => !!automation.defaultParams && Object.keys(automation.defaultParams).length > 0,
+    [automation.defaultParams]
+  );
+
+  const lastParamsQuery = useQuery({
+    queryKey: ["automations", automation.id, "lastParams"],
+    queryFn: () => automationsApi.lastParams(automation.id).then((r) => r.data.parameters),
+    staleTime: 30_000,
+  });
+
+  // forceDefault=true → ignora lastParams (usuário clicou "Voltar ao padrão").
+  const [forceDefault, setForceDefault] = useState(false);
+
+  const { source, initial }: { source: ParamSource; initial: Record<string, unknown> } =
+    useMemo(() => {
+      if (lastParamsQuery.isLoading) return { source: "loading", initial: {} };
+
+      const last = lastParamsQuery.data;
+      const hasLast = !!last && Object.keys(last).length > 0;
+
+      if (hasLast && !forceDefault) {
+        return { source: "last", initial: last as Record<string, unknown> };
+      }
+      if (hasDefaults) {
+        return {
+          source: "defaults",
+          initial: automation.defaultParams as Record<string, unknown>,
+        };
+      }
+      return { source: "empty", initial: {} };
+    }, [lastParamsQuery.data, lastParamsQuery.isLoading, forceDefault, hasDefaults, automation.defaultParams]);
+
+  const execute = useMutation({
+    mutationFn: (params: Record<string, unknown>) =>
+      automationsApi.execute(automation.id, params).then((r) => r.data),
+    onSuccess: (job) => {
+      toast.success(`Job criado: ${job.id.slice(0, 8)}…`);
+      qc.invalidateQueries({ queryKey: ["automations", automation.id, "lastParams"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      onClose();
+    },
+    onError: (err) => toast.error(errorMessage(err, "Erro ao executar")),
+  });
+
+  const showCascadeBadge =
+    (automation.parameterSchema?.length ?? 0) > 0 && source !== "loading";
+
+  return (
+    <Modal title={`Executar: ${automation.name}`} onClose={onClose}>
+      <p className="mb-3 text-sm text-gray-600">
+        Será criado um job imediato na fila <strong>{automation.queueName}</strong>.
+      </p>
+
+      {showCascadeBadge && source === "last" && (
+        <div className="mb-3 flex items-center justify-between rounded border border-rps-sage bg-rps-sage-soft px-3 py-2 text-xs">
+          <span className="font-medium text-rps-olive-dark">
+            ✓ Carregado da sua última execução
+          </span>
+          <button
+            type="button"
+            onClick={() => setForceDefault(true)}
+            className="rounded bg-white px-2 py-0.5 text-xs font-medium text-rps-olive-dark hover:bg-gray-50"
+          >
+            Voltar ao padrão
+          </button>
+        </div>
+      )}
+      {showCascadeBadge && source === "defaults" && (
+        <div className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+          Usando valores padrão da automação.
+        </div>
+      )}
+      {showCascadeBadge && source === "empty" && lastParamsQuery.isFetched && !hasDefaults && (
+        <div className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+          Sem histórico nem valores padrão — preencha do zero.
+        </div>
+      )}
+
+      {source === "loading" ? (
+        <p className="text-sm text-gray-400">Carregando últimos valores…</p>
+      ) : (
+        <DynamicParameterForm
+          // key força remount quando troca a fonte (last → defaults), pra
+          // resetar o estado interno do form.
+          key={`${automation.id}-${source}`}
+          schema={automation.parameterSchema ?? []}
+          initial={initial}
+          submitLabel="Executar"
+          onSubmit={(params) => execute.mutate(params)}
+          loading={execute.isPending}
+        />
+      )}
+    </Modal>
   );
 }
 
@@ -117,62 +299,59 @@ export default function AutomationsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [executing, setExecuting] = useState<Automation | null>(null);
-  const [execResult, setExecResult] = useState<string | null>(null);
 
   const { data: automations, isLoading } = useQuery({
     queryKey: ["automations"],
     queryFn: () => automationsApi.list().then((r) => r.data),
   });
 
-  const toPayload = (d: FormData) => ({
+  const toPayload = (d: FormData, defaultParams?: Record<string, unknown>) => ({
     name: d.name,
     description: d.description || undefined,
     scriptPath: d.scriptPath,
     queueName: d.queueName,
     parameterSchema: d.parameterSchema.length > 0 ? d.parameterSchema : undefined,
+    defaultParams,
   });
 
   const create = useMutation({
-    mutationFn: (d: FormData) => automationsApi.create(toPayload(d)),
+    mutationFn: ({ d, defaults }: { d: FormData; defaults?: Record<string, unknown> }) =>
+      automationsApi.create(toPayload(d, defaults)),
     onSuccess: () => {
+      toast.success("Automação criada");
       qc.invalidateQueries({ queryKey: ["automations"] });
       setCreating(false);
     },
+    onError: (err) => toast.error(errorMessage(err, "Erro ao criar automação")),
   });
 
   const update = useMutation({
-    mutationFn: (d: FormData) => automationsApi.update(editing!.id, toPayload(d)),
+    mutationFn: ({ d, defaults }: { d: FormData; defaults?: Record<string, unknown> }) =>
+      automationsApi.update(editing!.id, toPayload(d, defaults)),
     onSuccess: () => {
+      toast.success("Automação atualizada");
       qc.invalidateQueries({ queryKey: ["automations"] });
       setEditing(null);
     },
+    onError: (err) => toast.error(errorMessage(err, "Erro ao atualizar automação")),
   });
 
   const remove = useMutation({
     mutationFn: (id: number) => automationsApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
-  });
-
-  const execute = useMutation({
-    mutationFn: ({ id, params }: { id: number; params: Record<string, unknown> }) =>
-      automationsApi.execute(id, params),
-    onSuccess: (res) => {
-      setExecResult(`Job criado: ${res.data.id}`);
+    onSuccess: () => {
+      toast.success("Automação removida");
       qc.invalidateQueries({ queryKey: ["automations"] });
     },
-    onError: (e: unknown) => {
-      const msg = e instanceof Error ? e.message : "Erro desconhecido";
-      setExecResult(`Erro: ${msg}`);
-    },
+    onError: (err) => toast.error(errorMessage(err, "Erro ao remover automação")),
   });
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Automações</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Automações</h1>
         <button
           onClick={() => setCreating(true)}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="rounded bg-rps-olive px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-dark"
         >
           + Nova automação
         </button>
@@ -180,10 +359,10 @@ export default function AutomationsPage() {
 
       {isLoading && <p className="text-sm text-gray-400">Carregando…</p>}
 
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
-            <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">Script</th>
               <th className="px-4 py-3">Fila</th>
@@ -195,19 +374,16 @@ export default function AutomationsPage() {
             {automations?.map((a) => (
               <tr key={a.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{a.name}</td>
-                <td className="px-4 py-3 text-gray-500 font-mono text-xs">{a.scriptPath}</td>
+                <td className="px-4 py-3 font-mono text-xs text-gray-500">{a.scriptPath}</td>
                 <td className="px-4 py-3 text-gray-500">{a.queueName}</td>
                 <td className="px-4 py-3 text-gray-400">
                   {formatDistanceToNow(new Date(a.createdAt), { locale: ptBR, addSuffix: true })}
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex gap-2 justify-end">
+                  <div className="flex justify-end gap-2">
                     <button
-                      onClick={() => {
-                        setExecuting(a);
-                        setExecResult(null);
-                      }}
-                      className="rounded bg-green-100 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-200"
+                      onClick={() => setExecuting(a)}
+                      className="rounded bg-rps-sage-soft px-2 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage"
                     >
                       Executar
                     </button>
@@ -231,7 +407,7 @@ export default function AutomationsPage() {
             ))}
             {automations?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-gray-400 text-sm">
+                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">
                   Nenhuma automação cadastrada.
                 </td>
               </tr>
@@ -242,7 +418,11 @@ export default function AutomationsPage() {
 
       {creating && (
         <Modal title="Nova automação" onClose={() => setCreating(false)} wide>
-          <AutomationForm initial={empty} onSubmit={(d) => create.mutate(d)} loading={create.isPending} />
+          <AutomationForm
+            initial={empty}
+            onSubmit={(d, defaults) => create.mutate({ d, defaults })}
+            loading={create.isPending}
+          />
         </Modal>
       )}
 
@@ -255,30 +435,20 @@ export default function AutomationsPage() {
               scriptPath: editing.scriptPath,
               queueName: editing.queueName,
               parameterSchema: editing.parameterSchema ?? [],
+              defaultParamsJson: paramsToJsonField(editing.defaultParams),
             }}
-            onSubmit={(d) => update.mutate(d)}
+            onSubmit={(d, defaults) => update.mutate({ d, defaults })}
             loading={update.isPending}
           />
         </Modal>
       )}
 
       {executing && (
-        <Modal title={`Executar: ${executing.name}`} onClose={() => setExecuting(null)}>
-          <p className="text-sm text-gray-600 mb-4">
-            Será criado um job imediato na fila <strong>{executing.queueName}</strong>.
-          </p>
-          {execResult && (
-            <p className={`mb-3 text-sm ${execResult.startsWith("Erro") ? "text-red-600" : "text-green-600"}`}>
-              {execResult}
-            </p>
-          )}
-          <DynamicParameterForm
-            schema={executing.parameterSchema ?? []}
-            submitLabel="Executar"
-            onSubmit={(params) => execute.mutate({ id: executing.id, params })}
-            loading={execute.isPending}
-          />
-        </Modal>
+        <ExecuteModal
+          key={executing.id}
+          automation={executing}
+          onClose={() => setExecuting(null)}
+        />
       )}
     </div>
   );
