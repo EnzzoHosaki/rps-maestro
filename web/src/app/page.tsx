@@ -41,7 +41,7 @@ export default function DashboardPage() {
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
         <h2 className="mb-4 text-sm font-semibold text-gray-700">Automações cadastradas</h2>
         {!automations || automations.length === 0 ? (
-          <p className="text-sm text-gray-400">Nenhuma automação cadastrada.</p>
+          <p className="text-sm text-gray-600">Nenhuma automação cadastrada.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -56,7 +56,7 @@ export default function DashboardPage() {
                 <tr key={a.id}>
                   <td className="py-2 font-medium text-gray-900">{a.name}</td>
                   <td className="py-2 text-gray-500">{a.queueName}</td>
-                  <td className="py-2 text-gray-400">
+                  <td className="py-2 text-gray-500">
                     {formatDistanceToNow(new Date(a.createdAt), {
                       locale: ptBR,
                       addSuffix: true,

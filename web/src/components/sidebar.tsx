@@ -29,7 +29,7 @@ export function Sidebar() {
               href={l.href}
               className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 active
-                  ? "bg-blue-600 text-white"
+                  ? "bg-rps-olive-dark text-white"
                   : "text-gray-700 hover:bg-gray-200"
               }`}
             >
@@ -45,7 +45,7 @@ export function Sidebar() {
             localStorage.removeItem("token");
             window.location.href = "/login";
           }}
-          className="w-full text-left text-sm text-gray-500 hover:text-gray-900 transition-colors"
+          className="w-full text-left text-sm text-gray-600 hover:text-gray-900 transition-colors"
         >
           Sair
         </button>
