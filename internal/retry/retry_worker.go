@@ -12,14 +12,26 @@ import (
 
 const maxRetries = 3
 
-// RetryWorker detecta jobs travados (running há muito tempo) e os re-enfileira.
-// Após maxRetries tentativas sem sucesso, marca o job como failed.
+// RetryWorker detecta jobs travados (worker provavelmente morto) e os
+// re-enfileira. Após maxRetries tentativas sem sucesso, marca o job como
+// failed.
+//
+// Usa dois timeouts pra evitar falso positivo em jobs longos legítimos:
+//
+//   - heartbeatTimeout: pra jobs cujo worker já pelo menos uma vez chamou
+//     GET /worker/jobs/:id/cancellation (que atualiza last_heartbeat_at).
+//     Threshold curto — perder o sinal por mais que isso = worker morto.
+//
+//   - noHeartbeatTimeout: fallback pra workers antigos que não polam o
+//     endpoint de cancelamento. Threshold longo o suficiente pra não pegar
+//     job legítimo de duração média (o bot-xml-gms hoje leva ~45min).
 type RetryWorker struct {
-	jobRepo        repository.JobRepository
-	automationRepo repository.AutomationRepository
-	queueClient    *queue.RabbitMQClient
-	stuckTimeout   time.Duration
-	checkInterval  time.Duration
+	jobRepo            repository.JobRepository
+	automationRepo     repository.AutomationRepository
+	queueClient        *queue.RabbitMQClient
+	heartbeatTimeout   time.Duration
+	noHeartbeatTimeout time.Duration
+	checkInterval      time.Duration
 }
 
 func New(
@@ -28,19 +40,21 @@ func New(
 	queueClient *queue.RabbitMQClient,
 ) *RetryWorker {
 	return &RetryWorker{
-		jobRepo:        jobRepo,
-		automationRepo: automationRepo,
-		queueClient:    queueClient,
-		stuckTimeout:   30 * time.Minute,
-		checkInterval:  5 * time.Minute,
+		jobRepo:            jobRepo,
+		automationRepo:     automationRepo,
+		queueClient:        queueClient,
+		heartbeatTimeout:   5 * time.Minute,
+		noHeartbeatTimeout: 2 * time.Hour,
+		checkInterval:      1 * time.Minute,
 	}
 }
 
 // Start inicia o loop de verificação. Deve ser chamado em uma goroutine.
 func (w *RetryWorker) Start(ctx context.Context) {
 	log.Info().
-		Dur("timeout", w.stuckTimeout).
-		Dur("interval", w.checkInterval).
+		Dur("heartbeat_timeout", w.heartbeatTimeout).
+		Dur("no_heartbeat_timeout", w.noHeartbeatTimeout).
+		Dur("check_interval", w.checkInterval).
 		Msg("[retry] worker iniciado")
 
 	ticker := time.NewTicker(w.checkInterval)
@@ -58,7 +72,7 @@ func (w *RetryWorker) Start(ctx context.Context) {
 }
 
 func (w *RetryWorker) checkAndRetry(ctx context.Context) {
-	jobs, err := w.jobRepo.GetStuckJobs(ctx, w.stuckTimeout)
+	jobs, err := w.jobRepo.GetStuckJobs(ctx, w.heartbeatTimeout, w.noHeartbeatTimeout)
 	if err != nil {
 		log.Error().Err(err).Msg("[retry] erro ao buscar stuck jobs")
 		return

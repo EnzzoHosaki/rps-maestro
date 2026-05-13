@@ -4,11 +4,27 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
+
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/queue"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
 	"github.com/gin-gonic/gin"
 )
+
+// validateAutomationPayload aplica regras mínimas de sanidade em create/update.
+// Hoje só rejeita script_path vazio (já vimos "teste" e "" entrarem em prod
+// sem warning). Validações mais fortes (formato de caminho, lista permitida,
+// etc.) ficam pra depois se necessário.
+func validateAutomationPayload(a *models.Automation) string {
+	if strings.TrimSpace(a.Name) == "" {
+		return "name é obrigatório"
+	}
+	if strings.TrimSpace(a.ScriptPath) == "" {
+		return "script_path é obrigatório"
+	}
+	return ""
+}
 
 type AutomationHandler struct {
 	automationRepo repository.AutomationRepository
@@ -30,9 +46,14 @@ func NewAutomationHandler(
 
 func (h *AutomationHandler) CreateAutomation(c *gin.Context) {
 	var automation models.Automation
-	
+
 	if err := c.ShouldBindJSON(&automation); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos: " + err.Error()})
+		return
+	}
+
+	if msg := validateAutomationPayload(&automation); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 
@@ -82,6 +103,11 @@ func (h *AutomationHandler) UpdateAutomation(c *gin.Context) {
 	var automation models.Automation
 	if err := c.ShouldBindJSON(&automation); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos: " + err.Error()})
+		return
+	}
+
+	if msg := validateAutomationPayload(&automation); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 

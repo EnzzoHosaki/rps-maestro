@@ -33,8 +33,9 @@ type JobRepository interface {
 	SetResult(ctx context.Context, id uuid.UUID, result []byte) error
 	SetStarted(ctx context.Context, id uuid.UUID) error
 	SetCompleted(ctx context.Context, id uuid.UUID) error
-	GetStuckJobs(ctx context.Context, maxAge time.Duration) ([]models.Job, error)
+	GetStuckJobs(ctx context.Context, heartbeatTimeout, noHeartbeatTimeout time.Duration) ([]models.Job, error)
 	IncrementRetryCount(ctx context.Context, id uuid.UUID) error
+	UpdateHeartbeat(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, filter models.JobListFilter) ([]models.Job, int, error)
 	RequestCancellation(ctx context.Context, id uuid.UUID) error
 	IsCancellationRequested(ctx context.Context, id uuid.UUID) (bool, error)
