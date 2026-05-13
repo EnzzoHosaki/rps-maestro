@@ -15,7 +15,7 @@ import (
 // Qualquer SELECT que use pgx.RowToStructByPos[models.Job] precisa usar esta
 // ordem exata.
 const jobSelectColumns = `id, automation_id, user_id, status, parameters, result,
-	retry_count, started_at, completed_at, cancellation_requested_at, created_at`
+	retry_count, started_at, completed_at, cancellation_requested_at, last_heartbeat_at, created_at`
 
 func (r *PostgresJobRepository) Create(ctx context.Context, job *models.Job) error {
 	sql := `INSERT INTO jobs (automation_id, user_id, status, parameters)
@@ -38,7 +38,7 @@ func (r *PostgresJobRepository) GetByID(ctx context.Context, id uuid.UUID) (*mod
 	err := r.db.QueryRow(ctx, sql, id).Scan(
 		&j.ID, &j.AutomationID, &j.UserID, &j.Status,
 		&j.Parameters, &j.Result, &j.RetryCount,
-		&j.StartedAt, &j.CompletedAt, &j.CancellationRequestedAt, &j.CreatedAt,
+		&j.StartedAt, &j.CompletedAt, &j.CancellationRequestedAt, &j.LastHeartbeatAt, &j.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar job por ID: %w", err)
@@ -71,13 +71,26 @@ func (r *PostgresJobRepository) SetResult(ctx context.Context, id uuid.UUID, res
 }
 
 func (r *PostgresJobRepository) SetStarted(ctx context.Context, id uuid.UUID) error {
-	sql := `UPDATE jobs SET started_at = NOW(), status = 'running' WHERE id = $1`
+	// last_heartbeat_at também é setado aqui pra o retry worker não considerar
+	// o job stuck no primeiro tick antes do worker ter chance de polar.
+	sql := `UPDATE jobs SET started_at = NOW(), last_heartbeat_at = NOW(), status = 'running' WHERE id = $1`
 	cmdTag, err := r.db.Exec(ctx, sql, id)
 	if err != nil {
 		return fmt.Errorf("erro ao marcar job como iniciado: %w", err)
 	}
 	if cmdTag.RowsAffected() == 0 {
 		return fmt.Errorf("nenhum job encontrado com ID %s", id)
+	}
+	return nil
+}
+
+// UpdateHeartbeat marca o instante atual em last_heartbeat_at. Chamado como
+// side effect do GET /worker/jobs/:id/cancellation — cada poll do worker é
+// também um sinal de vida.
+func (r *PostgresJobRepository) UpdateHeartbeat(ctx context.Context, id uuid.UUID) error {
+	sql := `UPDATE jobs SET last_heartbeat_at = NOW() WHERE id = $1 AND status = 'running'`
+	if _, err := r.db.Exec(ctx, sql, id); err != nil {
+		return fmt.Errorf("erro ao atualizar heartbeat: %w", err)
 	}
 	return nil
 }
@@ -94,14 +107,31 @@ func (r *PostgresJobRepository) SetCompleted(ctx context.Context, id uuid.UUID) 
 	return nil
 }
 
-// GetStuckJobs retorna jobs com status "running" há mais tempo que maxAge.
-func (r *PostgresJobRepository) GetStuckJobs(ctx context.Context, maxAge time.Duration) ([]models.Job, error) {
+// GetStuckJobs retorna jobs em status "running" cujo worker provavelmente
+// morreu, usando dois timeouts:
+//
+//   - heartbeatTimeout: aplicado a jobs com last_heartbeat_at populado.
+//     Workers modernos polam GET /worker/jobs/:id/cancellation e atualizam
+//     esse campo a cada poll; perder esse sinal por mais que heartbeatTimeout
+//     significa worker morto. Threshold curto (~5min) → recuperação rápida.
+//
+//   - noHeartbeatTimeout: fallback pra jobs com last_heartbeat_at NULL
+//     (workers antigos que ainda não fazem o poll). Threshold longo (~2h)
+//     pra não falsificar jobs legítimos de duração média.
+//
+// Quando todos os workers migrarem pro polling, noHeartbeatTimeout pode ser
+// retirado e o threshold fica apenas em heartbeatTimeout.
+func (r *PostgresJobRepository) GetStuckJobs(ctx context.Context, heartbeatTimeout, noHeartbeatTimeout time.Duration) ([]models.Job, error) {
 	sql := `SELECT ` + jobSelectColumns + `
 	        FROM jobs
 	        WHERE status = 'running'
-	          AND started_at < NOW() - $1::interval`
+	          AND (
+	              (last_heartbeat_at IS NOT NULL AND last_heartbeat_at < NOW() - $1::interval)
+	              OR
+	              (last_heartbeat_at IS NULL AND started_at < NOW() - $2::interval)
+	          )`
 
-	rows, err := r.db.Query(ctx, sql, maxAge.String())
+	rows, err := r.db.Query(ctx, sql, heartbeatTimeout.String(), noHeartbeatTimeout.String())
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar stuck jobs: %w", err)
 	}

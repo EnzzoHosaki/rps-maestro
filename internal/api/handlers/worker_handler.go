@@ -177,6 +177,11 @@ func (h *WorkerHandler) HandleJobFinish(c *gin.Context) {
 // solicita cancelamento via POST /jobs/:id/cancel, este endpoint passa a
 // retornar true e o worker deve abortar com graça e reportar
 // status="canceled" no /finish.
+//
+// Side effect: cada chamada atualiza last_heartbeat_at do job. O retry worker
+// usa esse timestamp pra distinguir worker vivo de worker morto — então a
+// cadência de polling do worker (ver bot-xml-gms) precisa ser menor que o
+// heartbeat timeout configurado no retry worker (default 5min).
 func (h *WorkerHandler) HandleCancellationCheck(c *gin.Context) {
 	jobID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -189,6 +194,11 @@ func (h *WorkerHandler) HandleCancellationCheck(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Job não encontrado"})
 		return
 	}
+
+	// Heartbeat: best-effort, não bloqueia a resposta se falhar. Se o update
+	// der erro a gente loga (silenciosamente aqui) mas o worker continua
+	// recebendo a resposta de cancelamento.
+	_ = h.jobRepo.UpdateHeartbeat(c.Request.Context(), jobID)
 
 	c.JSON(http.StatusOK, gin.H{"cancellation_requested": requested})
 }
