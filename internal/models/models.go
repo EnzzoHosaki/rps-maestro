@@ -41,6 +41,7 @@ type Job struct {
 	StartedAt               *time.Time      `db:"started_at" json:"startedAt,omitempty"`
 	CompletedAt             *time.Time      `db:"completed_at" json:"completedAt,omitempty"`
 	CancellationRequestedAt *time.Time      `db:"cancellation_requested_at" json:"cancellationRequestedAt,omitempty"`
+	LastHeartbeatAt         *time.Time      `db:"last_heartbeat_at" json:"lastHeartbeatAt,omitempty"`
 	CreatedAt               time.Time       `db:"created_at" json:"createdAt"`
 }
 
