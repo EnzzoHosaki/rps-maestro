@@ -172,6 +172,49 @@ func (h *WorkerHandler) HandleJobFinish(c *gin.Context) {
 	})
 }
 
+// HandleJobStatus expõe o estado atual do job pra o worker decidir o que fazer
+// antes de processar uma mensagem. Existe pra cobrir o caso de redelivery:
+// quando o RabbitMQ reenfileira uma mensagem porque o basic_ack falhou (canal
+// morto por consumer_timeout, restart do broker, etc.), o worker pode pegar a
+// mesma mensagem cujo job já está em estado terminal no banco. Reprocessar
+// significaria repetir 30-40min de automação à toa — pior, sobrescrever o
+// resultado anterior. Com este endpoint o worker faz idempotency check:
+//
+//	if status in {completed, completed_no_invoices, failed, canceled}:
+//	    basic_ack(); return
+//
+// Não tem side effect (ao contrário de HandleCancellationCheck que atualiza
+// heartbeat) — é só leitura.
+func (h *WorkerHandler) HandleJobStatus(c *gin.Context) {
+	jobID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID do job inválido"})
+		return
+	}
+
+	job, err := h.jobRepo.GetByID(c.Request.Context(), jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Job não encontrado"})
+		return
+	}
+
+	terminal := false
+	switch job.Status {
+	case "completed", "completed_no_invoices", "failed", "canceled":
+		terminal = true
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":                    job.Status,
+		"terminal":                  terminal,
+		"started_at":                job.StartedAt,
+		"completed_at":              job.CompletedAt,
+		"last_heartbeat_at":         job.LastHeartbeatAt,
+		"cancellation_requested_at": job.CancellationRequestedAt,
+		"retry_count":               job.RetryCount,
+	})
+}
+
 // HandleCancellationCheck retorna {cancellation_requested: bool} para o worker
 // fazer poll periódico durante a execução de operações longas. Quando o usuário
 // solicita cancelamento via POST /jobs/:id/cancel, este endpoint passa a
