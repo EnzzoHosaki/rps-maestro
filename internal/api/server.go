@@ -114,8 +114,20 @@ func (s *Server) setupRoutes() {
 
 	protected := v1.Group("", middleware.JWTAuth(s.jwtCfg.Secret))
 
+	// Matriz de roles aplicada às rotas protegidas:
+	//
+	//   admin    → tudo.
+	//   operator → leitura de tudo + executar/cancelar/retry de jobs.
+	//   viewer   → só leitura.
+	//
+	// Rotas sem middleware extra dentro de `protected` exigem apenas JWT
+	// válido — viewer alcança. Endpoints com `adminOnly` ou `operatorPlus`
+	// adicionam o gate de role por cima.
+	adminOnly := middleware.RequireRole("admin")
+	operatorPlus := middleware.RequireRole("admin", "operator")
+
 	userHandler := handlers.NewUserHandler(s.userRepo)
-	users := protected.Group("/users")
+	users := protected.Group("/users", adminOnly)
 	{
 		users.POST("", userHandler.CreateUser)
 		users.GET("", userHandler.GetAllUsers)
@@ -128,12 +140,12 @@ func (s *Server) setupRoutes() {
 	automationHandler := handlers.NewAutomationHandler(s.automationRepo, s.jobRepo, s.queueClient)
 	automations := protected.Group("/automations")
 	{
-		automations.POST("", automationHandler.CreateAutomation)
+		automations.POST("", adminOnly, automationHandler.CreateAutomation)
 		automations.GET("", automationHandler.GetAllAutomations)
 		automations.GET("/:id", automationHandler.GetAutomationByID)
-		automations.PUT("/:id", automationHandler.UpdateAutomation)
-		automations.DELETE("/:id", automationHandler.DeleteAutomation)
-		automations.POST("/:id/execute", automationHandler.ExecuteAutomation)
+		automations.PUT("/:id", adminOnly, automationHandler.UpdateAutomation)
+		automations.DELETE("/:id", adminOnly, automationHandler.DeleteAutomation)
+		automations.POST("/:id/execute", operatorPlus, automationHandler.ExecuteAutomation)
 		automations.GET("/:id/last-params", automationHandler.GetLastParamsForUser)
 	}
 
@@ -144,8 +156,8 @@ func (s *Server) setupRoutes() {
 		jobs.GET("/:id", jobHandler.GetJobByID)
 		jobs.GET("/:id/logs", jobHandler.GetJobLogs)
 		jobs.GET("/:id/logs/stream", jobHandler.StreamJobLogs)
-		jobs.POST("/:id/cancel", jobHandler.CancelJob)
-		jobs.POST("/:id/retry", jobHandler.RetryJob)
+		jobs.POST("/:id/cancel", operatorPlus, jobHandler.CancelJob)
+		jobs.POST("/:id/retry", operatorPlus, jobHandler.RetryJob)
 	}
 
 	metricsHandler := handlers.NewMetricsHandler(s.jobRepo)
@@ -154,11 +166,11 @@ func (s *Server) setupRoutes() {
 	scheduleHandler := handlers.NewScheduleHandler(s.scheduleRepo, s.scheduler)
 	schedules := protected.Group("/schedules")
 	{
-		schedules.POST("", scheduleHandler.CreateSchedule)
+		schedules.POST("", adminOnly, scheduleHandler.CreateSchedule)
 		schedules.GET("", scheduleHandler.GetAllEnabledSchedules)
 		schedules.GET("/:id", scheduleHandler.GetScheduleByID)
-		schedules.PUT("/:id", scheduleHandler.UpdateSchedule)
-		schedules.DELETE("/:id", scheduleHandler.DeleteSchedule)
+		schedules.PUT("/:id", adminOnly, scheduleHandler.UpdateSchedule)
+		schedules.DELETE("/:id", adminOnly, scheduleHandler.DeleteSchedule)
 	}
 }
 
