@@ -73,7 +73,18 @@ func (r *PostgresJobRepository) SetResult(ctx context.Context, id uuid.UUID, res
 func (r *PostgresJobRepository) SetStarted(ctx context.Context, id uuid.UUID) error {
 	// last_heartbeat_at também é setado aqui pra o retry worker não considerar
 	// o job stuck no primeiro tick antes do worker ter chance de polar.
-	sql := `UPDATE jobs SET started_at = NOW(), last_heartbeat_at = NOW(), status = 'running' WHERE id = $1`
+	//
+	// cancellation_requested_at é zerado pra cada tentativa começar limpa:
+	// um cancelamento solicitado na tentativa N não deve abortar
+	// instantaneamente a tentativa N+1 (retry manual ou re-enqueue do retry
+	// worker). Se o usuário quiser cancelar de novo, basta clicar Cancelar
+	// outra vez — o flag volta a ser setado e o watcher pega no próximo poll.
+	sql := `UPDATE jobs
+	        SET started_at = NOW(),
+	            last_heartbeat_at = NOW(),
+	            status = 'running',
+	            cancellation_requested_at = NULL
+	        WHERE id = $1`
 	cmdTag, err := r.db.Exec(ctx, sql, id)
 	if err != nil {
 		return fmt.Errorf("erro ao marcar job como iniciado: %w", err)

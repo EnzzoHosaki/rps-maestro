@@ -108,6 +108,7 @@ func (s *Server) setupRoutes() {
 		worker.POST("/jobs/:id/start", workerHandler.HandleJobStart)
 		worker.POST("/jobs/:id/log", workerHandler.HandleJobLog)
 		worker.POST("/jobs/:id/finish", workerHandler.HandleJobFinish)
+		worker.GET("/jobs/:id/status", workerHandler.HandleJobStatus)
 		worker.GET("/jobs/:id/cancellation", workerHandler.HandleCancellationCheck)
 	}
 
