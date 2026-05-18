@@ -99,7 +99,12 @@ func (s *Server) setupRoutes() {
 	auth := v1.Group("/auth")
 	{
 		auth.POST("/login", authHandler.Login)
-		auth.POST("/refresh", middleware.JWTAuth(s.jwtCfg.Secret), authHandler.Refresh)
+		authed := auth.Group("", middleware.JWTAuth(s.jwtCfg.Secret))
+		{
+			authed.POST("/refresh", authHandler.Refresh)
+			authed.GET("/me", authHandler.Me)
+			authed.POST("/change-password", authHandler.ChangePassword)
+		}
 	}
 
 	workerHandler := handlers.NewWorkerHandler(s.jobRepo, s.jobLogRepo)
@@ -134,6 +139,9 @@ func (s *Server) setupRoutes() {
 		users.GET("/email", userHandler.GetUserByEmail)
 		users.GET("/:id", userHandler.GetUserByID)
 		users.PUT("/:id", userHandler.UpdateUser)
+		users.POST("/:id/deactivate", userHandler.DeactivateUser)
+		users.POST("/:id/reactivate", userHandler.ReactivateUser)
+		users.POST("/:id/reset-password", userHandler.ResetUserPassword)
 		users.DELETE("/:id", userHandler.DeleteUser)
 	}
 

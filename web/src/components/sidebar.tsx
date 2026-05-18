@@ -4,11 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
-const links = [
+type NavLink = { href: string; label: string; icon: string; adminOnly?: boolean };
+
+const links: NavLink[] = [
   { href: "/", label: "Dashboard", icon: "▦" },
   { href: "/automations", label: "Automações", icon: "⚡" },
   { href: "/jobs", label: "Jobs", icon: "⚙" },
   { href: "/schedules", label: "Agendamentos", icon: "⏱" },
+  { href: "/users", label: "Usuários", icon: "◉", adminOnly: true },
 ];
 
 const ROLE_LABEL: Record<string, string> = {
@@ -19,9 +22,11 @@ const ROLE_LABEL: Record<string, string> = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { email, role, logout } = useAuth();
+  const { email, role, isAdmin, logout } = useAuth();
 
   if (pathname === "/login") return null;
+
+  const visibleLinks = links.filter((l) => !l.adminOnly || isAdmin);
 
   return (
     <aside className="w-56 shrink-0 border-r border-gray-200 bg-gray-50 min-h-screen flex flex-col">
@@ -29,7 +34,7 @@ export function Sidebar() {
         <span className="text-lg font-bold tracking-tight">RPS Maestro</span>
       </div>
       <nav className="flex-1 p-3 space-y-1">
-        {links.map((l) => {
+        {visibleLinks.map((l) => {
           const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
           return (
             <Link
@@ -49,10 +54,13 @@ export function Sidebar() {
       </nav>
       <div className="p-4 border-t border-gray-200 space-y-2">
         {email && (
-          <div className="text-xs text-gray-600">
+          <Link
+            href="/me"
+            className="block text-xs text-gray-600 hover:text-gray-900 transition-colors"
+          >
             <p className="truncate font-medium text-gray-700">{email}</p>
             {role && <p className="text-gray-500">{ROLE_LABEL[role] ?? role}</p>}
-          </div>
+          </Link>
         )}
         <button
           onClick={logout}
