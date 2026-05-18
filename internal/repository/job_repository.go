@@ -349,3 +349,48 @@ func (r *PostgresJobRepository) GetMetrics(ctx context.Context) (*models.JobMetr
 		SuccessRate24h:  rate,
 	}, nil
 }
+
+// GetJobsPerHour retorna 24 buckets contínuos cobrindo as últimas 24h
+// (incluindo horas sem jobs, com counts zerados). Bucket por completed_at
+// pra evitar contar jobs que ainda não terminaram.
+func (r *PostgresJobRepository) GetJobsPerHour(ctx context.Context) ([]models.JobsPerHourBucket, error) {
+	sql := `
+		SELECT
+		    h.hour,
+		    COUNT(j.id) FILTER (
+		        WHERE j.status IN ('completed', 'completed_no_invoices', 'failed', 'canceled')
+		    ) AS total,
+		    COUNT(j.id) FILTER (
+		        WHERE j.status IN ('completed', 'completed_no_invoices')
+		    ) AS succeeded,
+		    COUNT(j.id) FILTER (WHERE j.status = 'failed') AS failed
+		FROM generate_series(
+		    date_trunc('hour', NOW()) - INTERVAL '23 hours',
+		    date_trunc('hour', NOW()),
+		    INTERVAL '1 hour'
+		) AS h(hour)
+		LEFT JOIN jobs j ON date_trunc('hour', j.completed_at) = h.hour
+		GROUP BY h.hour
+		ORDER BY h.hour
+	`
+
+	rows, err := r.db.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao agregar jobs por hora: %w", err)
+	}
+	defer rows.Close()
+
+	buckets := make([]models.JobsPerHourBucket, 0, 24)
+	for rows.Next() {
+		var b models.JobsPerHourBucket
+		if err := rows.Scan(&b.Hour, &b.Total, &b.Succeeded, &b.Failed); err != nil {
+			return nil, fmt.Errorf("erro ao escanear bucket: %w", err)
+		}
+		buckets = append(buckets, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar buckets: %w", err)
+	}
+
+	return buckets, nil
+}

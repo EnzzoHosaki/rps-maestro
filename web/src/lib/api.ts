@@ -118,6 +118,13 @@ export interface JobMetrics {
   successRate24h: number;
 }
 
+export interface JobsPerHourBucket {
+  hour: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
 export interface Schedule {
   id: number;
   automationId: number;
@@ -291,6 +298,7 @@ export const jobsApi = {
 
 export const metricsApi = {
   get: () => api.get<JobMetrics>("/metrics"),
+  jobsPerHour: () => api.get<JobsPerHourBucket[]>("/metrics/jobs-per-hour"),
 };
 
 // ── Schedules ─────────────────────────────────────────────────────────────────

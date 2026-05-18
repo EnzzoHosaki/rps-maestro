@@ -40,3 +40,17 @@ func (h *MetricsHandler) GetMetrics(c *gin.Context) {
 
 	c.JSON(http.StatusOK, metrics)
 }
+
+// GetJobsPerHour retorna 24 buckets de uma hora cada, cobrindo as últimas
+// 24h, com counts de total/succeeded/failed por hora. Bucket sem jobs
+// vem com zero. Resposta:
+//
+//	[{ "hour": "2026-05-18T18:00:00Z", "total": 4, "succeeded": 3, "failed": 1 }, ...]
+func (h *MetricsHandler) GetJobsPerHour(c *gin.Context) {
+	buckets, err := h.jobRepo.GetJobsPerHour(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao agregar jobs por hora: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, buckets)
+}
