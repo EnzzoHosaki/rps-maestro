@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { automationsApi, jobsApi, type JobStatus } from "@/lib/api";
 import {
-  automationsApi,
-  jobsApi,
-  type Automation,
-  type JobLog,
-  type JobStatus,
-} from "@/lib/api";
+  STATUS_LABEL,
+  STATUS_STYLE,
+  isActiveStatus,
+  isRetryableStatus,
+  jobErrorMessage,
+} from "@/lib/jobs";
 import { useAuth } from "@/lib/auth";
+import { JobPanel } from "@/components/job-panel";
 
 const PAGE_SIZE = 50;
 
@@ -24,241 +26,6 @@ const STATUS_FILTERS: { value: JobStatus | "all"; label: string }[] = [
   { value: "failed", label: "Falhou" },
   { value: "canceled", label: "Cancelado" },
 ];
-
-const STATUS_LABEL: Record<JobStatus, string> = {
-  pending: "Pendente",
-  running: "Executando",
-  completed: "Concluído",
-  completed_no_invoices: "Concluído (sem NFs)",
-  failed: "Falhou",
-  canceled: "Cancelado",
-};
-
-const STATUS_STYLE: Record<JobStatus, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  running: "bg-rps-sage-soft text-rps-olive-dark",
-  completed: "bg-rps-olive-soft text-rps-olive-dark",
-  completed_no_invoices: "bg-rps-olive-soft text-rps-olive-dark",
-  failed: "bg-red-100 text-red-800",
-  canceled: "bg-gray-200 text-gray-700",
-};
-
-const LOG_COLOR: Record<string, string> = {
-  ERROR: "text-red-400",
-  WARN: "text-yellow-400",
-  INFO: "text-gray-200",
-  DEBUG: "text-gray-500",
-};
-
-const ACTIVE_STATUSES: JobStatus[] = ["pending", "running"];
-const RETRYABLE_STATUSES: JobStatus[] = [
-  "completed",
-  "completed_no_invoices",
-  "failed",
-  "canceled",
-];
-
-function isActive(status: JobStatus) {
-  return ACTIVE_STATUSES.includes(status);
-}
-
-function isRetryable(status: JobStatus) {
-  return RETRYABLE_STATUSES.includes(status);
-}
-
-function errorMessage(err: unknown, fallback: string): string {
-  if (typeof err === "object" && err && "response" in err) {
-    const r = (err as { response?: { data?: { error?: string } } }).response;
-    if (r?.data?.error) return r.data.error;
-  }
-  if (err instanceof Error) return err.message;
-  return fallback;
-}
-
-function JobPanel({
-  jobId,
-  automations,
-  onClose,
-}: {
-  jobId: string;
-  automations: Automation[];
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const { isOperatorPlus } = useAuth();
-  const [logs, setLogs] = useState<JobLog[]>([]);
-  const [liveStatus, setLiveStatus] = useState<JobStatus | null>(null);
-  const [streamError, setStreamError] = useState<string | null>(null);
-  const logEndRef = useRef<HTMLDivElement>(null);
-
-  const { data: job } = useQuery({
-    queryKey: ["jobs", jobId],
-    queryFn: () => jobsApi.get(jobId).then((r) => r.data),
-  });
-
-  const status = liveStatus ?? job?.status ?? null;
-  const automation = useMemo(
-    () => automations.find((a) => a.id === job?.automationId),
-    [automations, job?.automationId]
-  );
-
-  // SSE: stream logs em tempo real. JobPanel é remontado via `key={jobId}` no
-  // parent, então o estado inicial já está limpo a cada troca — basta abrir
-  // a conexão aqui e devolver o cleanup pro unmount.
-  useEffect(() => {
-    const cleanup = jobsApi.streamLogs(jobId, {
-      onLog: (log) => setLogs((prev) => [...prev, log]),
-      onStatus: (s) => setLiveStatus(s as JobStatus),
-      onEnd: (s) => {
-        setLiveStatus(s as JobStatus);
-        queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      },
-      onError: (err) => {
-        if ("error" in (err as object)) {
-          setStreamError((err as { error: string }).error);
-        }
-      },
-    });
-
-    return cleanup;
-  }, [jobId, queryClient]);
-
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [logs.length]);
-
-  const cancelMutation = useMutation({
-    mutationFn: () => jobsApi.cancel(jobId).then((r) => r.data),
-    onSuccess: () => {
-      toast.success("Cancelamento solicitado");
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    },
-    onError: (err) => toast.error(errorMessage(err, "Erro ao cancelar")),
-  });
-
-  const retryMutation = useMutation({
-    mutationFn: () => jobsApi.retry(jobId).then((r) => r.data),
-    onSuccess: (newJob) => {
-      toast.success(`Reexecutado: ${newJob.id.slice(0, 8)}…`);
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    },
-    onError: (err) => toast.error(errorMessage(err, "Erro ao reexecutar")),
-  });
-
-  return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-[520px] flex-col border-l border-gray-200 bg-white shadow-2xl">
-      <div className="flex items-start justify-between border-b border-gray-200 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">
-            {automation?.name ?? "Job"}
-          </p>
-          <p className="truncate font-mono text-xs text-gray-500">{jobId}</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="ml-3 shrink-0 text-xl leading-none text-gray-500 hover:text-gray-900"
-          aria-label="Fechar"
-        >
-          ×
-        </button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 text-sm">
-        {status && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[status]}`}
-          >
-            {STATUS_LABEL[status]}
-          </span>
-        )}
-        {job?.startedAt && (
-          <span className="text-xs text-gray-500">
-            Iniciado{" "}
-            {formatDistanceToNow(new Date(job.startedAt), {
-              locale: ptBR,
-              addSuffix: true,
-            })}
-          </span>
-        )}
-        {job?.retryCount && job.retryCount > 0 ? (
-          <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-            retry #{job.retryCount}
-          </span>
-        ) : null}
-        <div className="ml-auto flex gap-2">
-          {isOperatorPlus && status && isActive(status) && (
-            <button
-              onClick={() => cancelMutation.mutate()}
-              disabled={cancelMutation.isPending}
-              className="rounded bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-            >
-              {cancelMutation.isPending ? "Cancelando…" : "Cancelar"}
-            </button>
-          )}
-          {isOperatorPlus && status && isRetryable(status) && (
-            <button
-              onClick={() => retryMutation.mutate()}
-              disabled={retryMutation.isPending}
-              className="rounded bg-rps-sage-soft px-3 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage disabled:opacity-50"
-            >
-              {retryMutation.isPending ? "Enviando…" : "Reexecutar"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {job?.parameters && Object.keys(job.parameters).length > 0 && (
-        <details className="border-b border-gray-100 px-4 py-2 text-xs">
-          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
-            Parâmetros
-          </summary>
-          <pre className="mt-2 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
-            {JSON.stringify(job.parameters, null, 2)}
-          </pre>
-        </details>
-      )}
-
-      {streamError && (
-        <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700">
-          Stream interrompido: {streamError}
-        </div>
-      )}
-
-      <div className="flex-1 overflow-auto bg-gray-900 p-4 font-mono text-xs">
-        {logs.length === 0 ? (
-          <p className="text-gray-500">
-            {status && isActive(status)
-              ? "Aguardando primeiro log…"
-              : "Nenhum log gerado."}
-          </p>
-        ) : (
-          logs.map((l) => (
-            <div key={l.id} className="mb-1 flex gap-2">
-              <span className="shrink-0 text-gray-600">
-                {format(new Date(l.timestamp), "HH:mm:ss")}
-              </span>
-              <span
-                className={`w-12 shrink-0 uppercase ${
-                  LOG_COLOR[l.level.toUpperCase()] ?? "text-gray-300"
-                }`}
-              >
-                {l.level.slice(0, 4)}
-              </span>
-              <span
-                className={`whitespace-pre-wrap break-words ${
-                  LOG_COLOR[l.level.toUpperCase()] ?? "text-gray-300"
-                }`}
-              >
-                {l.message}
-              </span>
-            </div>
-          ))
-        )}
-        <div ref={logEndRef} />
-      </div>
-    </div>
-  );
-}
 
 export default function JobsPage() {
   const queryClient = useQueryClient();
@@ -288,7 +55,7 @@ export default function JobsPage() {
         .then((r) => r.data),
     refetchInterval: (q) => {
       const data = q.state.data;
-      const hasActive = data?.items.some((j) => isActive(j.status));
+      const hasActive = data?.items.some((j) => isActiveStatus(j.status));
       return hasActive ? 5000 : false;
     },
     placeholderData: (prev) => prev,
@@ -300,7 +67,7 @@ export default function JobsPage() {
       toast.success("Cancelamento solicitado");
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
-    onError: (err) => toast.error(errorMessage(err, "Erro ao cancelar")),
+    onError: (err) => toast.error(jobErrorMessage(err, "Erro ao cancelar")),
   });
 
   const retryMutation = useMutation({
@@ -310,7 +77,7 @@ export default function JobsPage() {
       setSelectedJobId(newJob.id);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
-    onError: (err) => toast.error(errorMessage(err, "Erro ao reexecutar")),
+    onError: (err) => toast.error(jobErrorMessage(err, "Erro ao reexecutar")),
   });
 
   const total = listQuery.data?.total ?? 0;
@@ -318,8 +85,6 @@ export default function JobsPage() {
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // Resetar paginação ao trocar de filtro vai direto nos handlers (em vez de
-  // num useEffect), pra evitar render-em-cascata e o aviso do react-hooks.
   function changeStatusFilter(value: JobStatus | "all") {
     setStatusFilter(value);
     setOffset(0);
@@ -420,7 +185,7 @@ export default function JobsPage() {
                       >
                         Ver logs
                       </button>
-                      {isOperatorPlus && isActive(j.status) && (
+                      {isOperatorPlus && isActiveStatus(j.status) && (
                         <button
                           onClick={() => cancelMutation.mutate(j.id)}
                           disabled={cancelMutation.isPending}
@@ -429,7 +194,7 @@ export default function JobsPage() {
                           Cancelar
                         </button>
                       )}
-                      {isOperatorPlus && isRetryable(j.status) && (
+                      {isOperatorPlus && isRetryableStatus(j.status) && (
                         <button
                           onClick={() => retryMutation.mutate(j.id)}
                           disabled={retryMutation.isPending}

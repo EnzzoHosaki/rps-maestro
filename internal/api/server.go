@@ -170,6 +170,7 @@ func (s *Server) setupRoutes() {
 
 	metricsHandler := handlers.NewMetricsHandler(s.jobRepo)
 	protected.GET("/metrics", metricsHandler.GetMetrics)
+	protected.GET("/metrics/jobs-per-hour", metricsHandler.GetJobsPerHour)
 
 	scheduleHandler := handlers.NewScheduleHandler(s.scheduleRepo, s.scheduler)
 	schedules := protected.Group("/schedules")
