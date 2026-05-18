@@ -1,4 +1,5 @@
 import axios from "axios";
+import { toast } from "sonner";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
 
@@ -13,9 +14,18 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
-    if (err.response?.status === 401 && typeof window !== "undefined") {
+    const status = err.response?.status;
+    if (status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("token");
       window.location.href = "/login";
+    } else if (status === 403) {
+      // UI já esconde ações fora do role, mas se algo escapar (URL direta,
+      // race com refresh de token, regressão), mostra erro claro em vez de
+      // falha silenciosa.
+      const msg =
+        (err.response?.data as { error?: string } | undefined)?.error ??
+        "Permissão insuficiente para esta operação.";
+      toast.error(msg);
     }
     return Promise.reject(err);
   }

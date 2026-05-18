@@ -12,6 +12,7 @@ import {
   type JobLog,
   type JobStatus,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const PAGE_SIZE = 50;
 
@@ -84,6 +85,7 @@ function JobPanel({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const { isOperatorPlus } = useAuth();
   const [logs, setLogs] = useState<JobLog[]>([]);
   const [liveStatus, setLiveStatus] = useState<JobStatus | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -184,7 +186,7 @@ function JobPanel({
           </span>
         ) : null}
         <div className="ml-auto flex gap-2">
-          {status && isActive(status) && (
+          {isOperatorPlus && status && isActive(status) && (
             <button
               onClick={() => cancelMutation.mutate()}
               disabled={cancelMutation.isPending}
@@ -193,7 +195,7 @@ function JobPanel({
               {cancelMutation.isPending ? "Cancelando…" : "Cancelar"}
             </button>
           )}
-          {status && isRetryable(status) && (
+          {isOperatorPlus && status && isRetryable(status) && (
             <button
               onClick={() => retryMutation.mutate()}
               disabled={retryMutation.isPending}
@@ -260,6 +262,7 @@ function JobPanel({
 
 export default function JobsPage() {
   const queryClient = useQueryClient();
+  const { isOperatorPlus } = useAuth();
   const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all");
   const [automationFilter, setAutomationFilter] = useState<number | "all">("all");
   const [offset, setOffset] = useState(0);
@@ -417,7 +420,7 @@ export default function JobsPage() {
                       >
                         Ver logs
                       </button>
-                      {isActive(j.status) && (
+                      {isOperatorPlus && isActive(j.status) && (
                         <button
                           onClick={() => cancelMutation.mutate(j.id)}
                           disabled={cancelMutation.isPending}
@@ -426,7 +429,7 @@ export default function JobsPage() {
                           Cancelar
                         </button>
                       )}
-                      {isRetryable(j.status) && (
+                      {isOperatorPlus && isRetryable(j.status) && (
                         <button
                           onClick={() => retryMutation.mutate(j.id)}
                           disabled={retryMutation.isPending}
