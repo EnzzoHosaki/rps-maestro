@@ -8,6 +8,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ParameterSchemaEditor } from "@/components/parameter-schema-editor";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
+import { useAuth } from "@/lib/auth";
 
 type FormData = {
   name: string;
@@ -296,6 +297,7 @@ function ExecuteModal({
 
 export default function AutomationsPage() {
   const qc = useQueryClient();
+  const { isAdmin, isOperatorPlus } = useAuth();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [executing, setExecuting] = useState<Automation | null>(null);
@@ -349,12 +351,14 @@ export default function AutomationsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Automações</h1>
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
-        >
-          + Nova automação
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setCreating(true)}
+            className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
+          >
+            + Nova automação
+          </button>
+        )}
       </div>
 
       {isLoading && <p className="text-sm text-gray-600">Carregando…</p>}
@@ -381,26 +385,32 @@ export default function AutomationsPage() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => setExecuting(a)}
-                      className="rounded bg-rps-sage-soft px-2 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage"
-                    >
-                      Executar
-                    </button>
-                    <button
-                      onClick={() => setEditing(a)}
-                      className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm("Remover esta automação?")) remove.mutate(a.id);
-                      }}
-                      className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
-                    >
-                      Remover
-                    </button>
+                    {isOperatorPlus && (
+                      <button
+                        onClick={() => setExecuting(a)}
+                        className="rounded bg-rps-sage-soft px-2 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage"
+                      >
+                        Executar
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        onClick={() => setEditing(a)}
+                        className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                      >
+                        Editar
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          if (confirm("Remover esta automação?")) remove.mutate(a.id);
+                        }}
+                        className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
+                      >
+                        Remover
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
