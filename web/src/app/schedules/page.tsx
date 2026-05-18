@@ -6,6 +6,7 @@ import { schedulesApi, automationsApi, type Schedule, type Automation } from "@/
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
+import { useAuth } from "@/lib/auth";
 
 type FormData = {
   automationId: number;
@@ -154,6 +155,7 @@ function ScheduleForm({
 
 export default function SchedulesPage() {
   const qc = useQueryClient();
+  const { isAdmin } = useAuth();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
 
@@ -208,12 +210,14 @@ export default function SchedulesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Agendamentos</h1>
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
-        >
-          + Novo agendamento
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setCreating(true)}
+            className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
+          >
+            + Novo agendamento
+          </button>
+        )}
       </div>
 
       {isLoading && <p className="text-sm text-gray-600">Carregando…</p>}
@@ -240,34 +244,48 @@ export default function SchedulesPage() {
                     : "—"}
                 </td>
                 <td className="px-4 py-3">
-                  <button
-                    onClick={() => toggle.mutate(s)}
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      s.isEnabled
-                        ? "bg-green-100 text-green-700 hover:bg-green-200"
-                        : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                    }`}
-                  >
-                    {s.isEnabled ? "Ativo" : "Inativo"}
-                  </button>
+                  {isAdmin ? (
+                    <button
+                      onClick={() => toggle.mutate(s)}
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        s.isEnabled
+                          ? "bg-green-100 text-green-700 hover:bg-green-200"
+                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                      }`}
+                    >
+                      {s.isEnabled ? "Ativo" : "Inativo"}
+                    </button>
+                  ) : (
+                    <span
+                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                        s.isEnabled
+                          ? "bg-green-100 text-green-700"
+                          : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {s.isEnabled ? "Ativo" : "Inativo"}
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex gap-2 justify-end">
-                    <button
-                      onClick={() => setEditing(s)}
-                      className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm("Remover este agendamento?")) remove.mutate(s.id);
-                      }}
-                      className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
-                    >
-                      Remover
-                    </button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditing(s)}
+                        className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm("Remover este agendamento?")) remove.mutate(s.id);
+                        }}
+                        className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}

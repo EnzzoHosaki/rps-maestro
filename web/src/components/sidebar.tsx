@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 
 const links = [
   { href: "/", label: "Dashboard", icon: "▦" },
@@ -10,8 +11,15 @@ const links = [
   { href: "/schedules", label: "Agendamentos", icon: "⏱" },
 ];
 
+const ROLE_LABEL: Record<string, string> = {
+  admin: "Admin",
+  operator: "Operador",
+  viewer: "Leitor",
+};
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { email, role, logout } = useAuth();
 
   if (pathname === "/login") return null;
 
@@ -39,12 +47,15 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="p-4 border-t border-gray-200">
+      <div className="p-4 border-t border-gray-200 space-y-2">
+        {email && (
+          <div className="text-xs text-gray-600">
+            <p className="truncate font-medium text-gray-700">{email}</p>
+            {role && <p className="text-gray-500">{ROLE_LABEL[role] ?? role}</p>}
+          </div>
+        )}
         <button
-          onClick={() => {
-            localStorage.removeItem("token");
-            window.location.href = "/login";
-          }}
+          onClick={logout}
           className="w-full text-left text-sm text-gray-600 hover:text-gray-900 transition-colors"
         >
           Sair
