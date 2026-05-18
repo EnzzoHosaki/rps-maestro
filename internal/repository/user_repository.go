@@ -10,14 +10,14 @@ import (
 func (r *PostgresUserRepository) Create(ctx context.Context, user *models.User) error {
 	sql := `INSERT INTO users (name, email, password_hash, role)
 	        VALUES ($1, $2, $3, $4)
-	        RETURNING id, created_at, updated_at`
+	        RETURNING id, is_active, created_at, updated_at`
 
 	err := r.db.QueryRow(ctx, sql,
 		user.Name,
 		user.Email,
 		user.PasswordHash,
 		user.Role,
-	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("erro ao criar utilizador: %w", err)
@@ -27,7 +27,7 @@ func (r *PostgresUserRepository) Create(ctx context.Context, user *models.User) 
 }
 
 func (r *PostgresUserRepository) GetByID(ctx context.Context, id int) (*models.User, error) {
-	sql := `SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE id = $1`
+	sql := `SELECT id, name, email, password_hash, role, is_active, created_at, updated_at FROM users WHERE id = $1`
 	user := &models.User{}
 	err := r.db.QueryRow(ctx, sql, id).Scan(
 		&user.ID,
@@ -35,6 +35,7 @@ func (r *PostgresUserRepository) GetByID(ctx context.Context, id int) (*models.U
 		&user.Email,
 		&user.PasswordHash,
 		&user.Role,
+		&user.IsActive,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -45,7 +46,7 @@ func (r *PostgresUserRepository) GetByID(ctx context.Context, id int) (*models.U
 }
 
 func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
-	sql := `SELECT id, name, email, password_hash, role, created_at, updated_at FROM users WHERE email = $1`
+	sql := `SELECT id, name, email, password_hash, role, is_active, created_at, updated_at FROM users WHERE email = $1`
 	user := &models.User{}
 	err := r.db.QueryRow(ctx, sql, email).Scan(
 		&user.ID,
@@ -53,6 +54,7 @@ func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (
 		&user.Email,
 		&user.PasswordHash,
 		&user.Role,
+		&user.IsActive,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -62,8 +64,16 @@ func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (
 	return user, nil
 }
 
-func (r *PostgresUserRepository) GetAll(ctx context.Context) ([]models.User, error) {
-	sql := `SELECT id, name, email, password_hash, role, created_at, updated_at FROM users ORDER BY id`
+// GetAll lista usuários. Por padrão filtra apenas ativos; passe
+// includeInactive=true pra ver desativados também (uso na tela admin de
+// usuários, com toggle "mostrar inativos").
+func (r *PostgresUserRepository) GetAll(ctx context.Context, includeInactive bool) ([]models.User, error) {
+	sql := `SELECT id, name, email, password_hash, role, is_active, created_at, updated_at FROM users`
+	if !includeInactive {
+		sql += ` WHERE is_active = TRUE`
+	}
+	sql += ` ORDER BY id`
+
 	rows, err := r.db.Query(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar usuários: %w", err)
@@ -79,6 +89,7 @@ func (r *PostgresUserRepository) GetAll(ctx context.Context) ([]models.User, err
 			&user.Email,
 			&user.PasswordHash,
 			&user.Role,
+			&user.IsActive,
 			&user.CreatedAt,
 			&user.UpdatedAt,
 		)
@@ -95,16 +106,18 @@ func (r *PostgresUserRepository) GetAll(ctx context.Context) ([]models.User, err
 	return users, nil
 }
 
+// Update atualiza name/email/role. NÃO mexe em password_hash nem is_active —
+// pra isso existem UpdatePassword e SetActive, que evitam que um PUT genérico
+// vaze hash ou re-ative usuário sem querer.
 func (r *PostgresUserRepository) Update(ctx context.Context, user *models.User) error {
-	sql := `UPDATE users 
-	        SET name = $1, email = $2, password_hash = $3, role = $4, updated_at = NOW()
-	        WHERE id = $5
+	sql := `UPDATE users
+	        SET name = $1, email = $2, role = $3, updated_at = NOW()
+	        WHERE id = $4
 	        RETURNING updated_at`
 
 	err := r.db.QueryRow(ctx, sql,
 		user.Name,
 		user.Email,
-		user.PasswordHash,
 		user.Role,
 		user.ID,
 	).Scan(&user.UpdatedAt)
@@ -113,6 +126,30 @@ func (r *PostgresUserRepository) Update(ctx context.Context, user *models.User) 
 		return fmt.Errorf("erro ao atualizar usuário: %w", err)
 	}
 
+	return nil
+}
+
+func (r *PostgresUserRepository) UpdatePassword(ctx context.Context, id int, passwordHash string) error {
+	sql := `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`
+	result, err := r.db.Exec(ctx, sql, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("erro ao atualizar senha: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("usuário não encontrado")
+	}
+	return nil
+}
+
+func (r *PostgresUserRepository) SetActive(ctx context.Context, id int, isActive bool) error {
+	sql := `UPDATE users SET is_active = $1, updated_at = NOW() WHERE id = $2`
+	result, err := r.db.Exec(ctx, sql, isActive, id)
+	if err != nil {
+		return fmt.Errorf("erro ao alterar status do usuário: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("usuário não encontrado")
+	}
 	return nil
 }
 

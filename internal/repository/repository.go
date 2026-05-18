@@ -12,8 +12,10 @@ type UserRepository interface {
 	Create(ctx context.Context, user *models.User) error
 	GetByID(ctx context.Context, id int) (*models.User, error)
 	GetByEmail(ctx context.Context, email string) (*models.User, error)
-	GetAll(ctx context.Context) ([]models.User, error)
+	GetAll(ctx context.Context, includeInactive bool) ([]models.User, error)
 	Update(ctx context.Context, user *models.User) error
+	UpdatePassword(ctx context.Context, id int, passwordHash string) error
+	SetActive(ctx context.Context, id int, isActive bool) error
 	Delete(ctx context.Context, id int) error
 }
 

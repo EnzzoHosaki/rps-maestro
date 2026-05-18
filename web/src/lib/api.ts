@@ -134,6 +134,7 @@ export interface User {
   name: string;
   email: string;
   role: string;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,6 +145,36 @@ export const authApi = {
   login: (email: string, password: string) =>
     api.post<{ token: string; expires_in: number; user: User }>("/auth/login", { email, password }),
   refresh: () => api.post<{ token: string; expires_in: number }>("/auth/refresh"),
+  me: () => api.get<User>("/auth/me"),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<{ message: string }>("/auth/change-password", { currentPassword, newPassword }),
+};
+
+// ── Users (admin) ────────────────────────────────────────────────────────────
+
+export interface CreateUserPayload {
+  name: string;
+  email: string;
+  password: string;
+  role: "admin" | "operator" | "viewer";
+}
+
+export interface UpdateUserPayload {
+  name: string;
+  email: string;
+  role: "admin" | "operator" | "viewer";
+}
+
+export const usersApi = {
+  list: (includeInactive = false) =>
+    api.get<User[]>("/users", { params: includeInactive ? { include_inactive: "true" } : {} }),
+  get: (id: number) => api.get<User>(`/users/${id}`),
+  create: (data: CreateUserPayload) => api.post<User>("/users", data),
+  update: (id: number, data: UpdateUserPayload) => api.put<User>(`/users/${id}`, data),
+  deactivate: (id: number) => api.post<{ message: string }>(`/users/${id}/deactivate`),
+  reactivate: (id: number) => api.post<{ message: string }>(`/users/${id}/reactivate`),
+  resetPassword: (id: number, newPassword: string) =>
+    api.post<{ message: string }>(`/users/${id}/reset-password`, { newPassword }),
 };
 
 // ── Automations ───────────────────────────────────────────────────────────────

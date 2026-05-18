@@ -14,6 +14,7 @@ type User struct {
 	Email        string    `db:"email" json:"email"`
 	PasswordHash string    `db:"password_hash" json:"-"`
 	Role         string    `db:"role" json:"role"`
+	IsActive     bool      `db:"is_active" json:"isActive"`
 	CreatedAt    time.Time `db:"created_at" json:"createdAt"`
 	UpdatedAt    time.Time `db:"updated_at" json:"updatedAt"`
 }
