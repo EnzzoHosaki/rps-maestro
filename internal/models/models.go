@@ -57,6 +57,16 @@ type JobMetrics struct {
 	SuccessRate24h  float64 `json:"successRate24h"`
 }
 
+// JobsPerHourBucket é o agregado de jobs finalizados em uma hora — usado pelo
+// mini-gráfico do dashboard. Sempre vem em séries de 24 buckets contínuos,
+// incluindo horas sem jobs (total=0).
+type JobsPerHourBucket struct {
+	Hour      time.Time `json:"hour"`
+	Total     int       `json:"total"`
+	Succeeded int       `json:"succeeded"`
+	Failed    int       `json:"failed"`
+}
+
 // JobListFilter agrega os filtros suportados por JobRepository.List.
 type JobListFilter struct {
 	Status       *string

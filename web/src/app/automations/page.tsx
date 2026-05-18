@@ -8,6 +8,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ParameterSchemaEditor } from "@/components/parameter-schema-editor";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
+import { JobPanel } from "@/components/job-panel";
 import { useAuth } from "@/lib/auth";
 
 type FormData = {
@@ -193,9 +194,11 @@ type ParamSource = "loading" | "last" | "defaults" | "empty";
 function ExecuteModal({
   automation,
   onClose,
+  onJobCreated,
 }: {
   automation: Automation;
   onClose: () => void;
+  onJobCreated: (jobId: string) => void;
 }) {
   const qc = useQueryClient();
   const hasDefaults = useMemo(
@@ -239,6 +242,7 @@ function ExecuteModal({
       qc.invalidateQueries({ queryKey: ["automations", automation.id, "lastParams"] });
       qc.invalidateQueries({ queryKey: ["jobs"] });
       onClose();
+      onJobCreated(job.id);
     },
     onError: (err) => toast.error(errorMessage(err, "Erro ao executar")),
   });
@@ -301,6 +305,7 @@ export default function AutomationsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [executing, setExecuting] = useState<Automation | null>(null);
+  const [viewingJobId, setViewingJobId] = useState<string | null>(null);
 
   const { data: automations, isLoading } = useQuery({
     queryKey: ["automations"],
@@ -458,6 +463,16 @@ export default function AutomationsPage() {
           key={executing.id}
           automation={executing}
           onClose={() => setExecuting(null)}
+          onJobCreated={setViewingJobId}
+        />
+      )}
+
+      {viewingJobId && automations && (
+        <JobPanel
+          key={viewingJobId}
+          jobId={viewingJobId}
+          automations={automations}
+          onClose={() => setViewingJobId(null)}
         />
       )}
     </div>
