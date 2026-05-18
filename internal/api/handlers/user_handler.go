@@ -7,6 +7,7 @@ import (
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserHandler struct {
@@ -19,63 +20,65 @@ func NewUserHandler(userRepo repository.UserRepository) *UserHandler {
 	}
 }
 
-// CreateUser godoc
-// @Summary Criar novo usuário
-// @Description Cria um novo usuário no sistema
-// @Tags users
-// @Accept json
-// @Produce json
-// @Param user body models.User true "Dados do usuário"
-// @Success 201 {object} models.User
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/v1/users [post]
-func (h *UserHandler) CreateUser(c *gin.Context) {
-	var user models.User
+// callerID extrai o user_id do JWT do contexto. Retorna (0, false) se
+// não estiver presente — proteção contra contexto não-autenticado vazando
+// pra cá (não deve ocorrer dado o middleware, mas é cheap insurance).
+func callerID(c *gin.Context) (int, bool) {
+	v, exists := c.Get("user_id")
+	if !exists {
+		return 0, false
+	}
+	id, ok := v.(int)
+	if !ok {
+		return 0, false
+	}
+	return id, true
+}
 
-	if err := c.ShouldBindJSON(&user); err != nil {
+// CreateUser cria usuário. A senha vem em texto puro no payload e é
+// hasheada aqui — o cliente nunca lida com hash. Role default = viewer.
+func (h *UserHandler) CreateUser(c *gin.Context) {
+	var req struct {
+		Name     string `json:"name" binding:"required"`
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required,min=8"`
+		Role     string `json:"role"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos: " + err.Error()})
 		return
 	}
 
-	// Validações básicas
-	if user.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Nome é obrigatório"})
-		return
+	if req.Role == "" {
+		req.Role = "viewer"
 	}
-	if user.Email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email é obrigatório"})
+	if req.Role != "admin" && req.Role != "operator" && req.Role != "viewer" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Role inválido: deve ser admin, operator ou viewer"})
 		return
-	}
-	if user.Role == "" {
-		user.Role = "viewer" // Role padrão
 	}
 
-	// TODO: Hash da senha antes de salvar
-	// user.PasswordHash = hashPassword(user.Password)
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao processar senha"})
+		return
+	}
+
+	user := models.User{
+		Name:         req.Name,
+		Email:        req.Email,
+		PasswordHash: string(hash),
+		Role:         req.Role,
+	}
 
 	if err := h.userRepo.Create(c.Request.Context(), &user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao criar usuário: " + err.Error()})
 		return
 	}
 
-	// Remove password_hash da resposta
 	user.PasswordHash = ""
-
 	c.JSON(http.StatusCreated, user)
 }
 
-// GetUserByID godoc
-// @Summary Buscar usuário por ID
-// @Description Retorna os dados de um usuário específico
-// @Tags users
-// @Produce json
-// @Param id path int true "User ID"
-// @Success 200 {object} models.User
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/v1/users/{id} [get]
 func (h *UserHandler) GetUserByID(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -90,23 +93,10 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	// Remove password_hash da resposta
 	user.PasswordHash = ""
-
 	c.JSON(http.StatusOK, user)
 }
 
-// GetUserByEmail godoc
-// @Summary Buscar usuário por email
-// @Description Retorna os dados de um usuário específico pelo email
-// @Tags users
-// @Produce json
-// @Param email query string true "User Email"
-// @Success 200 {object} models.User
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/v1/users/email [get]
 func (h *UserHandler) GetUserByEmail(c *gin.Context) {
 	email := c.Query("email")
 	if email == "" {
@@ -120,28 +110,21 @@ func (h *UserHandler) GetUserByEmail(c *gin.Context) {
 		return
 	}
 
-	// Remove password_hash da resposta
 	user.PasswordHash = ""
-
 	c.JSON(http.StatusOK, user)
 }
 
-// GetAllUsers godoc
-// @Summary Listar todos os usuários
-// @Description Retorna a lista de todos os usuários
-// @Tags users
-// @Produce json
-// @Success 200 {array} models.User
-// @Failure 500 {object} map[string]string
-// @Router /api/v1/users [get]
+// GetAllUsers lista usuários. Por padrão só ativos; `?include_inactive=true`
+// inclui desativados (tela admin que precisa reativar conta).
 func (h *UserHandler) GetAllUsers(c *gin.Context) {
-	users, err := h.userRepo.GetAll(c.Request.Context())
+	includeInactive := c.Query("include_inactive") == "true"
+
+	users, err := h.userRepo.GetAll(c.Request.Context(), includeInactive)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar usuários: " + err.Error()})
 		return
 	}
 
-	// Remove password_hash de todos os usuários
 	for i := range users {
 		users[i].PasswordHash = ""
 	}
@@ -149,19 +132,9 @@ func (h *UserHandler) GetAllUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, users)
 }
 
-// UpdateUser godoc
-// @Summary Atualizar usuário
-// @Description Atualiza os dados de um usuário existente
-// @Tags users
-// @Accept json
-// @Produce json
-// @Param id path int true "User ID"
-// @Param user body models.User true "Dados do usuário"
-// @Success 200 {object} models.User
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/v1/users/{id} [put]
+// UpdateUser atualiza name/email/role. Senha NÃO entra aqui — pra trocar
+// usa /auth/change-password (próprio user) ou /users/:id/reset-password
+// (admin reseta alguém).
 func (h *UserHandler) UpdateUser(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -170,49 +143,134 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	// Verifica se o usuário existe
-	existingUser, err := h.userRepo.GetByID(c.Request.Context(), id)
+	existing, err := h.userRepo.GetByID(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Usuário não encontrado"})
 		return
 	}
 
-	var updatedUser models.User
-	if err := c.ShouldBindJSON(&updatedUser); err != nil {
+	var req struct {
+		Name  string `json:"name" binding:"required"`
+		Email string `json:"email" binding:"required,email"`
+		Role  string `json:"role" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos: " + err.Error()})
 		return
 	}
 
-	// Mantém o ID original
-	updatedUser.ID = existingUser.ID
-
-	// Se não enviou nova senha, mantém a antiga
-	if updatedUser.PasswordHash == "" {
-		updatedUser.PasswordHash = existingUser.PasswordHash
+	if req.Role != "admin" && req.Role != "operator" && req.Role != "viewer" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Role inválido: deve ser admin, operator ou viewer"})
+		return
 	}
 
-	if err := h.userRepo.Update(c.Request.Context(), &updatedUser); err != nil {
+	existing.Name = req.Name
+	existing.Email = req.Email
+	existing.Role = req.Role
+
+	if err := h.userRepo.Update(c.Request.Context(), existing); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar usuário: " + err.Error()})
 		return
 	}
 
-	// Remove password_hash da resposta
-	updatedUser.PasswordHash = ""
-
-	c.JSON(http.StatusOK, updatedUser)
+	existing.PasswordHash = ""
+	c.JSON(http.StatusOK, existing)
 }
 
-// DeleteUser godoc
-// @Summary Deletar usuário
-// @Description Remove um usuário do sistema
-// @Tags users
-// @Produce json
-// @Param id path int true "User ID"
-// @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/v1/users/{id} [delete]
+// DeactivateUser marca o usuário como inativo. Impede admin de se
+// desativar — pega ele fora da gestão sem caminho de volta pelo painel.
+func (h *UserHandler) DeactivateUser(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	caller, ok := callerID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "não autenticado"})
+		return
+	}
+	if caller == id {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "você não pode desativar a própria conta"})
+		return
+	}
+
+	if _, err := h.userRepo.GetByID(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Usuário não encontrado"})
+		return
+	}
+
+	if err := h.userRepo.SetActive(c.Request.Context(), id, false); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao desativar usuário: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "usuário desativado"})
+}
+
+func (h *UserHandler) ReactivateUser(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	if _, err := h.userRepo.GetByID(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Usuário não encontrado"})
+		return
+	}
+
+	if err := h.userRepo.SetActive(c.Request.Context(), id, true); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao reativar usuário: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "usuário reativado"})
+}
+
+// ResetUserPassword permite admin definir nova senha de outro usuário sem
+// saber a senha atual — caminho pra recuperar conta cuja senha foi esquecida.
+func (h *UserHandler) ResetUserPassword(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	var req struct {
+		NewPassword string `json:"newPassword" binding:"required,min=8"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nova senha (mín. 8 caracteres) é obrigatória"})
+		return
+	}
+
+	if _, err := h.userRepo.GetByID(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Usuário não encontrado"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao processar senha"})
+		return
+	}
+
+	if err := h.userRepo.UpdatePassword(c.Request.Context(), id, string(hash)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar senha"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "senha resetada"})
+}
+
+// DeleteUser ainda existe pra hard-delete de conta órfã, mas o caminho
+// recomendado é desativar (preserva FK em jobs). Mantido por compat e pra
+// casos extremos de limpeza.
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -221,9 +279,17 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// Verifica se o usuário existe
-	_, err = h.userRepo.GetByID(c.Request.Context(), id)
-	if err != nil {
+	caller, ok := callerID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "não autenticado"})
+		return
+	}
+	if caller == id {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "você não pode remover a própria conta"})
+		return
+	}
+
+	if _, err := h.userRepo.GetByID(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Usuário não encontrado"})
 		return
 	}
