@@ -129,13 +129,39 @@ function ScheduleForm({
           {schema.length === 0 ? (
             <p className="text-xs text-gray-600 dark:text-gray-400">Esta automação não define parâmetros.</p>
           ) : (
-            <DynamicParameterForm
-              schema={schema}
-              initial={form.parameters}
-              submitLabel={loading ? "Salvando…" : "Salvar agendamento"}
-              loading={loading}
-              onSubmit={(params) => onSubmit({ ...form, parameters: params })}
-            />
+            <>
+              <div className="mb-3 rounded border border-rps-sage bg-rps-sage-soft px-3 py-2 text-xs text-rps-olive-dark">
+                <p className="font-medium">Dica: datas dinâmicas</p>
+                <p className="mt-0.5">
+                  Em campos de data você pode usar placeholders que são resolvidos a cada execução
+                  do cron:
+                </p>
+                <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                  <li>
+                    <code className="font-mono">{"{{yesterday}}"}</code> →
+                    {" "}data de ontem (também <code className="font-mono">{"{{today-1}}"}</code>)
+                  </li>
+                  <li>
+                    <code className="font-mono">{"{{today}}"}</code> → hoje
+                  </li>
+                  <li>
+                    <code className="font-mono">{"{{today-N}}"}</code> → N dias atrás (ex.:
+                    {" "}<code className="font-mono">{"{{today-2}}"}</code>)
+                  </li>
+                  <li>
+                    <code className="font-mono">{"{{tomorrow}}"}</code> → amanhã
+                  </li>
+                </ul>
+                <p className="mt-1">Formato resolvido: <span className="font-mono">dd/MM/yyyy</span>.</p>
+              </div>
+              <DynamicParameterForm
+                schema={schema}
+                initial={form.parameters}
+                submitLabel={loading ? "Salvando…" : "Salvar agendamento"}
+                loading={loading}
+                onSubmit={(params) => onSubmit({ ...form, parameters: params })}
+              />
+            </>
           )}
         </div>
       )}
