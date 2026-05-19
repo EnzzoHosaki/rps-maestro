@@ -3,6 +3,14 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
 }
 
 @theme inline {
@@ -23,10 +31,11 @@
   --color-rps-olive-darker: #3e4a37;
 }
 
-/* prefers-color-scheme: dark removido propositalmente — as páginas usam
-   bg-white explícito e ainda não temos um dark mode de verdade. Mantendo
-   o automático criava body escuro com caixas brancas (e era o "cor escura
-   sobre fundo escuro" reportado por usuários com SO em dark mode). */
+/* Dark mode via prefers-color-scheme — agora com variantes `dark:` em
+   todas as cores hardcoded (PR #8). O bug antigo de "body escuro / caixas
+   brancas" foi resolvido aplicando dark: nas surfaces. color-scheme
+   declarado em :root garante que form controls nativos (input, select,
+   scrollbar) adaptem sem fix manual. */
 
 body {
   background: var(--background);

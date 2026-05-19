@@ -96,24 +96,24 @@ export function JobPanel({
   });
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-[520px] flex-col border-l border-gray-200 bg-white shadow-2xl">
-      <div className="flex items-start justify-between border-b border-gray-200 px-4 py-3">
+    <div className="fixed inset-y-0 right-0 z-50 flex w-[520px] flex-col border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl">
+      <div className="flex items-start justify-between border-b border-gray-200 dark:border-gray-800 px-4 py-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {automation?.name ?? "Job"}
           </p>
           <p className="truncate font-mono text-xs text-gray-500">{jobId}</p>
         </div>
         <button
           onClick={onClose}
-          className="ml-3 shrink-0 text-xl leading-none text-gray-500 hover:text-gray-900"
+          className="ml-3 shrink-0 text-xl leading-none text-gray-500 hover:text-gray-900 dark:text-gray-100"
           aria-label="Fechar"
         >
           ×
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 dark:border-gray-800 px-4 py-3 text-sm">
         {status && (
           <span
             className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[status]}`}
@@ -131,7 +131,7 @@ export function JobPanel({
           </span>
         )}
         {job?.retryCount && job.retryCount > 0 ? (
-          <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+          <span className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400">
             retry #{job.retryCount}
           </span>
         ) : null}
@@ -158,11 +158,11 @@ export function JobPanel({
       </div>
 
       {job?.parameters && Object.keys(job.parameters).length > 0 && (
-        <details className="border-b border-gray-100 px-4 py-2 text-xs">
-          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
+        <details className="border-b border-gray-100 dark:border-gray-800 px-4 py-2 text-xs">
+          <summary className="cursor-pointer text-gray-500 hover:text-gray-700 dark:text-gray-300">
             Parâmetros
           </summary>
-          <pre className="mt-2 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
+          <pre className="mt-2 overflow-auto rounded bg-gray-50 dark:bg-gray-800 p-2 text-xs text-gray-700 dark:text-gray-300">
             {JSON.stringify(job.parameters, null, 2)}
           </pre>
         </details>
@@ -184,7 +184,7 @@ export function JobPanel({
         ) : (
           logs.map((l) => (
             <div key={l.id} className="mb-1 flex gap-2">
-              <span className="shrink-0 text-gray-600">
+              <span className="shrink-0 text-gray-600 dark:text-gray-400">
                 {format(new Date(l.timestamp), "HH:mm:ss")}
               </span>
               <span

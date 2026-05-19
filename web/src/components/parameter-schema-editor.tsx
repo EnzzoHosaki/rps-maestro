@@ -21,7 +21,7 @@ const DATE_DDMMYYYY = /^\d{2}\/\d{2}\/\d{4}$/;
 const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 const inputCls =
-  "rounded border border-gray-300 px-2 py-1 text-xs text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none";
+  "rounded border border-gray-300 dark:border-gray-700 bg-white px-2 py-1 text-xs text-gray-900 dark:text-gray-100 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
 
 function snakeToLabel(name: string): string {
   return name
@@ -104,7 +104,7 @@ export function ParameterSchemaEditor({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-gray-600">Schema de parâmetros</label>
+        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Schema de parâmetros</label>
         <div className="flex gap-2">
           <button
             type="button"
@@ -112,14 +112,14 @@ export function ParameterSchemaEditor({
               setPasting((p) => !p);
               setPasteErr(null);
             }}
-            className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 hover:bg-gray-200"
+            className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
           >
             {pasting ? "Cancelar" : "Colar JSON de exemplo"}
           </button>
           <button
             type="button"
             onClick={add}
-            className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 hover:bg-gray-200"
+            className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
           >
             + Adicionar campo
           </button>
@@ -137,7 +137,7 @@ export function ParameterSchemaEditor({
             onChange={(e) => setPasted(e.target.value)}
             rows={6}
             placeholder='{ "stores": [4814, 6861], "start_date": "26/04/2026", "headless": true }'
-            className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-mono text-gray-900 placeholder-gray-500"
+            className="w-full rounded border border-gray-300 dark:border-gray-700 px-2 py-1 text-xs font-mono text-gray-900 dark:text-gray-100 placeholder-gray-500"
           />
           {pasteErr && <p className="text-xs text-red-700">{pasteErr}</p>}
           <div className="flex gap-2 justify-end">
@@ -145,7 +145,7 @@ export function ParameterSchemaEditor({
               type="button"
               onClick={() => applyPaste("append")}
               disabled={!pasted.trim()}
-              className="rounded bg-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-300 disabled:opacity-50"
+              className="rounded bg-gray-200 dark:bg-gray-700 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
             >
               Adicionar aos existentes
             </button>
@@ -162,13 +162,13 @@ export function ParameterSchemaEditor({
       )}
 
       {value.length === 0 && !pasting && (
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-gray-600 dark:text-gray-400">
           Nenhum campo. Adicione campos que o worker espera (ex.: stores, start_date).
         </p>
       )}
 
       {value.map((f, idx) => (
-        <div key={idx} className="rounded border border-gray-200 p-2 space-y-2 bg-gray-50">
+        <div key={idx} className="rounded border border-gray-200 dark:border-gray-800 p-2 space-y-2 bg-gray-50 dark:bg-gray-800">
           <div className="grid grid-cols-2 gap-2">
             <input
               required
@@ -197,7 +197,7 @@ export function ParameterSchemaEditor({
                 </option>
               ))}
             </select>
-            <label className="flex items-center gap-1 text-xs text-gray-700">
+            <label className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300">
               <input
                 type="checkbox"
                 checked={!!f.required}

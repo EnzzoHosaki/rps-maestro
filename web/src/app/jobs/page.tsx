@@ -15,6 +15,7 @@ import {
 } from "@/lib/jobs";
 import { useAuth } from "@/lib/auth";
 import { JobPanel } from "@/components/job-panel";
+import { SkeletonRow } from "@/components/skeleton";
 
 const PAGE_SIZE = 50;
 
@@ -96,8 +97,7 @@ export default function JobsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
+      <div className="flex items-baseline justify-end">
         <span className="text-sm text-gray-500">
           {listQuery.isFetching ? "Atualizando…" : `${total} job${total === 1 ? "" : "s"}`}
         </span>
@@ -112,7 +112,7 @@ export default function JobsPage() {
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 statusFilter === s.value
                   ? "bg-rps-olive-dark text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
               }`}
             >
               {s.label}
@@ -125,7 +125,7 @@ export default function JobsPage() {
           onChange={(e) =>
             changeAutomationFilter(e.target.value === "all" ? "all" : Number(e.target.value))
           }
-          className="rounded border border-gray-300 bg-white px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
         >
           <option value="all">Todas automações</option>
           {automations.map((a) => (
@@ -136,9 +136,9 @@ export default function JobsPage() {
         </select>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-800">
             <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
               <th className="px-4 py-3">ID</th>
               <th className="px-4 py-3">Automação</th>
@@ -147,11 +147,11 @@ export default function JobsPage() {
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {items.map((j) => {
               const automation = automations.find((a) => a.id === j.automationId);
               return (
-                <tr key={j.id} className="hover:bg-gray-50">
+                <tr key={j.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td
                     className="cursor-pointer px-4 py-3 font-mono text-xs text-gray-500"
                     onClick={() => setSelectedJobId(j.id)}
@@ -159,7 +159,7 @@ export default function JobsPage() {
                     {j.id.slice(0, 8)}…
                   </td>
                   <td
-                    className="cursor-pointer px-4 py-3 text-gray-700"
+                    className="cursor-pointer px-4 py-3 text-gray-700 dark:text-gray-300"
                     onClick={() => setSelectedJobId(j.id)}
                   >
                     {automation?.name ?? j.automationId}
@@ -181,7 +181,7 @@ export default function JobsPage() {
                     <div className="flex justify-end gap-1.5">
                       <button
                         onClick={() => setSelectedJobId(j.id)}
-                        className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                       >
                         Ver logs
                       </button>
@@ -210,24 +210,19 @@ export default function JobsPage() {
             })}
             {!listQuery.isLoading && items.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-600">
+                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-600 dark:text-gray-400">
                   Nenhum job encontrado com os filtros atuais.
                 </td>
               </tr>
             )}
-            {listQuery.isLoading && (
-              <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-600">
-                  Carregando…
-                </td>
-              </tr>
-            )}
+            {listQuery.isLoading &&
+              Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
           </tbody>
         </table>
       </div>
 
       {total > 0 && (
-        <div className="flex items-center justify-between text-sm text-gray-600">
+        <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
           <span>
             {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} de {total}
           </span>
@@ -235,7 +230,7 @@ export default function JobsPage() {
             <button
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               disabled={offset === 0}
-              className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
             >
               Anterior
             </button>
@@ -245,7 +240,7 @@ export default function JobsPage() {
             <button
               onClick={() => setOffset(offset + PAGE_SIZE)}
               disabled={offset + PAGE_SIZE >= total}
-              className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
             >
               Próximo
             </button>

@@ -10,6 +10,7 @@ import { ParameterSchemaEditor } from "@/components/parameter-schema-editor";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
 import { JobPanel } from "@/components/job-panel";
 import { useAuth } from "@/lib/auth";
+import { SkeletonRow } from "@/components/skeleton";
 
 type FormData = {
   name: string;
@@ -52,11 +53,11 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
-        className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl`}
+        className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-gray-900 p-6 shadow-xl`}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-xl leading-none text-gray-500 hover:text-gray-900">
+          <button onClick={onClose} className="text-xl leading-none text-gray-500 hover:text-gray-900 dark:text-gray-100">
             ×
           </button>
         </div>
@@ -126,24 +127,24 @@ function AutomationForm({
     <form onSubmit={handleSubmit} className="space-y-3">
       {(["name", "scriptPath", "queueName"] as const).map((k) => (
         <div key={k}>
-          <label className="mb-1 block text-xs font-medium text-gray-600 capitalize">
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400 capitalize">
             {k === "scriptPath" ? "Caminho do script" : k === "queueName" ? "Fila" : "Nome"}
           </label>
           <input
             required
             value={form[k]}
             onChange={set(k)}
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+            className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
           />
         </div>
       ))}
       <div>
-        <label className="mb-1 block text-xs font-medium text-gray-600">Descrição</label>
+        <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Descrição</label>
         <textarea
           value={form.description}
           onChange={set("description")}
           rows={2}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
       </div>
 
@@ -154,13 +155,13 @@ function AutomationForm({
 
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <label className="block text-xs font-medium text-gray-600">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
             Default params (JSON, opcional)
           </label>
           <button
             type="button"
             onClick={formatDefaultParams}
-            className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-200"
+            className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
           >
             Validar e formatar
           </button>
@@ -170,7 +171,7 @@ function AutomationForm({
           onChange={set("defaultParamsJson")}
           rows={4}
           placeholder='{ "stores": [4814, 6861], "headless": true }'
-          className="w-full rounded border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 font-mono text-xs text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
         {defaultParamsErr && <p className="mt-1 text-xs text-red-600">{defaultParamsErr}</p>}
         <p className="mt-1 text-xs text-gray-500">
@@ -252,7 +253,7 @@ function ExecuteModal({
 
   return (
     <Modal title={`Executar: ${automation.name}`} onClose={onClose}>
-      <p className="mb-3 text-sm text-gray-600">
+      <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
         Será criado um job imediato na fila <strong>{automation.queueName}</strong>.
       </p>
 
@@ -264,25 +265,25 @@ function ExecuteModal({
           <button
             type="button"
             onClick={() => setForceDefault(true)}
-            className="rounded bg-white px-2 py-0.5 text-xs font-medium text-rps-olive-dark hover:bg-gray-50"
+            className="rounded bg-white dark:bg-gray-900 px-2 py-0.5 text-xs font-medium text-rps-olive-dark hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Voltar ao padrão
           </button>
         </div>
       )}
       {showCascadeBadge && source === "defaults" && (
-        <div className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+        <div className="mb-3 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
           Usando valores padrão da automação.
         </div>
       )}
       {showCascadeBadge && source === "empty" && lastParamsQuery.isFetched && !hasDefaults && (
-        <div className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+        <div className="mb-3 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-xs text-gray-500">
           Sem histórico nem valores padrão — preencha do zero.
         </div>
       )}
 
       {source === "loading" ? (
-        <p className="text-sm text-gray-600">Carregando últimos valores…</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">Carregando últimos valores…</p>
       ) : (
         <DynamicParameterForm
           // key força remount quando troca a fonte (last → defaults), pra
@@ -354,23 +355,20 @@ export default function AutomationsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Automações</h1>
-        {isAdmin && (
+      {isAdmin && (
+        <div className="flex justify-end">
           <button
             onClick={() => setCreating(true)}
             className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
           >
             + Nova automação
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {isLoading && <p className="text-sm text-gray-600">Carregando…</p>}
-
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-800">
             <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">Script</th>
@@ -379,10 +377,12 @@ export default function AutomationsPage() {
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            {isLoading &&
+              Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
             {automations?.map((a) => (
-              <tr key={a.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{a.name}</td>
+              <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{a.name}</td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">{a.scriptPath}</td>
                 <td className="px-4 py-3 text-gray-500">{a.queueName}</td>
                 <td className="px-4 py-3 text-gray-500">
@@ -401,7 +401,7 @@ export default function AutomationsPage() {
                     {isAdmin && (
                       <button
                         onClick={() => setEditing(a)}
-                        className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                       >
                         Editar
                       </button>
@@ -422,7 +422,7 @@ export default function AutomationsPage() {
             ))}
             {automations?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-600">
+                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
                   Nenhuma automação cadastrada.
                 </td>
               </tr>
