@@ -14,6 +14,7 @@ import {
   jobErrorMessage,
 } from "@/lib/jobs";
 import { useAuth } from "@/lib/auth";
+import { JobResultSummary } from "@/components/job-result-summary";
 
 const LOG_COLOR: Record<string, string> = {
   ERROR: "text-red-400",
@@ -135,6 +136,14 @@ export function JobPanel({
             retry #{job.retryCount}
           </span>
         ) : null}
+        {job?.result?.partial_success === true && (
+          <span
+            className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+            title="Parte dos itens processou com sucesso; veja o resultado para detalhes."
+          >
+            parcial
+          </span>
+        )}
         <div className="ml-auto flex gap-2">
           {isOperatorPlus && status && isActiveStatus(status) && (
             <button
@@ -167,6 +176,8 @@ export function JobPanel({
           </pre>
         </details>
       )}
+
+      {job?.result && <JobResultSummary result={job.result} />}
 
       {streamError && (
         <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700">

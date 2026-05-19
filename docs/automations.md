@@ -231,6 +231,51 @@ Status válidos:
 
 `result` é `map[string]any` livre — fica salvo no job e visível no painel.
 
+#### Convenções de `result` (opcionais, mas a UI sabe destacar)
+
+Workers podem mandar qualquer shape em `result`. Quando você adotar os campos abaixo, o painel passa a renderizar de forma especial:
+
+| Campo                  | Tipo                          | Efeito na UI                                                              |
+|------------------------|-------------------------------|----------------------------------------------------------------------------|
+| `partial_success`      | `bool`                        | Chip "parcial" amarelo ao lado do status — sinaliza que algumas unidades falharam |
+| `summary.ok`           | `string[]`                    | Lista verde de itens processados com sucesso, com contagem                |
+| `summary.failed`       | `Array<{empresa, error_class, error_type, message}>` | Lista vermelha de falhas, com error_class destacado quando presente |
+| `summary.no_data`      | `string[]`                    | Lista amarela de itens sem dados                                          |
+| `summary.skipped`      | `string[]`                    | Lista cinza de itens pulados                                              |
+| `error`                | `string`                      | Mensagem de erro destacada em vermelho no topo do resultado               |
+| `error_class`          | `string`                      | Categoria semântica do erro (ver seção 5.3.1) — vira chip vermelho        |
+| `error_type`           | `string`                      | Nome técnico da exceção (debug), mostrado em fonte mono cinza             |
+
+Quando `summary` tem qualquer um de `ok/failed/no_data/skipped` (subset), o painel usa o renderizador tipado (badges + listas dobráveis). Se nenhuma dessas chaves estiver presente, o painel cai pra renderização KV genérica (JSON formatado).
+
+Campos extras dentro de `summary` (qualquer chave fora do conjunto canônico) ainda aparecem como JSON no fim — não escondemos dados que o worker decidiu reportar.
+
+**Quando usar `partial_success: true`:** a automação processa N unidades independentes e o resultado **não é binário** — alguns deram certo, outros falharam, mas o job em si não foi um fracasso. Marcar `partial_success` mantém o status `completed` (a métrica de sucesso continua igual), mas avisa o operador que vale conferir o detalhamento. Se nenhuma unidade deu certo, prefira `status: "failed"` em vez de `partial_success`.
+
+Exemplo completo (worker que processa N empresas):
+
+```json
+{
+  "status": "completed",
+  "result": {
+    "partial_success": true,
+    "summary": {
+      "ok": ["EMPRESA_A", "EMPRESA_B", "EMPRESA_D"],
+      "failed": [
+        {
+          "empresa": "EMPRESA_C",
+          "error_class": "CREDENTIAL_INVALID",
+          "error_type": "InvalidCredentialError",
+          "message": "Senha incorreta no portal SEFAZ"
+        }
+      ],
+      "no_data": ["EMPRESA_E"],
+      "skipped": []
+    }
+  }
+}
+```
+
 ### 5.4 `GET /worker/jobs/:id/cancellation`
 
 Polling pra cancelamento cooperativo **e** sinal de heartbeat. Chame periodicamente (ver seção 6).
