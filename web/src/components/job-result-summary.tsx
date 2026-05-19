@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { JobResult, TypedResultSummary } from "@/lib/api";
+import { errorClassLabel, errorClassStyle } from "@/lib/jobs";
 
 const TYPED_KEYS = ["ok", "failed", "no_data", "skipped"] as const;
 
@@ -95,8 +96,13 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
                   {f.empresa ?? "(sem identificação)"}
                 </div>
                 {f.error_class && (
-                  <div className="mt-0.5 inline-block rounded bg-red-200 px-1.5 py-0.5 font-mono text-[10px] text-red-900 dark:bg-red-900/60 dark:text-red-200">
-                    {f.error_class}
+                  <div
+                    className={`mt-0.5 inline-block rounded px-1.5 py-0.5 font-mono text-[10px] ${errorClassStyle(
+                      f.error_class
+                    )}`}
+                    title={f.error_class}
+                  >
+                    {errorClassLabel(f.error_class)}
                   </div>
                 )}
                 {f.message && (
@@ -190,8 +196,13 @@ export function JobResultSummary({ result }: { result: JobResult }) {
               {result.error}
             </div>
             {result.error_class && (
-              <div className="mt-1 inline-block rounded bg-red-200 px-1.5 py-0.5 font-mono text-[10px] text-red-900 dark:bg-red-900/60 dark:text-red-200">
-                {result.error_class}
+              <div
+                className={`mt-1 inline-block rounded px-1.5 py-0.5 font-mono text-[10px] ${errorClassStyle(
+                  result.error_class
+                )}`}
+                title={result.error_class}
+              >
+                {errorClassLabel(result.error_class)}
               </div>
             )}
             {result.error_type && (

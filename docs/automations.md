@@ -229,6 +229,27 @@ Status válidos:
 | `failed`                  | Exceção, erro do portal externo, etc.                                        |
 | `canceled`                | Você detectou pedido de cancelamento e abortou com graça                     |
 
+#### 5.3.1 Categorias canônicas de erro (`result.error_class`)
+
+Quando o job termina com `failed` (ou `completed` + `partial_success`), categorize a causa principal em `result.error_class` usando uma das strings canônicas abaixo. O painel ganha um chip colorido por categoria e a listagem `/jobs` filtra por categoria na página atual.
+
+| `error_class`                | Significado                                                                 | Tone  |
+|------------------------------|-------------------------------------------------------------------------------|-------|
+| `CREDENTIAL_INVALID`         | Usuário/senha rejeitados pelo portal externo (operador precisa atualizar)    | red   |
+| `IP_BLOCKED`                 | Portal bloqueou nosso IP — exige proxy ou janela de espera                   | red   |
+| `CAPTCHA_FAILED`             | Capsolver falhou ou retornou solução inválida                                 | red   |
+| `INFRA_DESTINO_INDISPONIVEL` | Compartilhamento / banco / FTP de destino caído                              | red   |
+| `INVALID_PARAMETERS`         | Parâmetros recebidos do Maestro não passam na validação inicial              | red   |
+| `RATE_LIMITED`               | Portal devolveu 429 ou equivalente — transitório                             | amber |
+| `PORTAL_DOWN`                | Portal externo retornou 5xx persistente — transitório                        | amber |
+| `JOB_TIMEOUT`                | Heartbeat expirou ou loop interno estourou tempo                             | amber |
+| `PARTIAL_FAILURE`            | Use junto com `partial_success: true` quando categorizar o conjunto         | amber |
+| `UNKNOWN`                    | Fallback — só use se realmente não se encaixar em nenhuma das acima          | gray  |
+
+`error_class` é independente de `error_type` (que continua sendo o nome técnico da exceção/classe Python, útil só pra debug). Use os dois: `error_class` é UX, `error_type` é forense.
+
+Workers que processam N unidades também podem repetir `error_class` dentro de cada item de `summary.failed[]` — útil quando categorias variam por unidade (uma empresa com `CREDENTIAL_INVALID`, outra com `RATE_LIMITED`).
+
 `result` é `map[string]any` livre — fica salvo no job e visível no painel.
 
 #### Convenções de `result` (opcionais, mas a UI sabe destacar)
