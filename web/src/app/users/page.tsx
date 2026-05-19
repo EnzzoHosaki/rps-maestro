@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { SkeletonRow } from "@/components/skeleton";
 
 const ROLE_OPTIONS: Array<{ value: "admin" | "operator" | "viewer"; label: string }> = [
   { value: "admin", label: "Admin" },
@@ -43,12 +44,12 @@ function Modal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-gray-900 p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
             onClick={onClose}
-            className="text-xl leading-none text-gray-500 hover:text-gray-900"
+            className="text-xl leading-none text-gray-500 hover:text-gray-900 dark:text-gray-100"
           >
             ×
           </button>
@@ -81,32 +82,32 @@ function UserForm({
       className="space-y-3"
     >
       <div>
-        <label className="mb-1 block text-xs font-medium text-gray-600">Nome</label>
+        <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Nome</label>
         <input
           required
           value={form.name}
           onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-rps-olive-dark focus:outline-none"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-rps-olive-dark focus:outline-none"
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-gray-600">Email</label>
+        <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Email</label>
         <input
           required
           type="email"
           value={form.email}
           onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-rps-olive-dark focus:outline-none"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-rps-olive-dark focus:outline-none"
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-gray-600">Role</label>
+        <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Role</label>
         <select
           value={form.role}
           onChange={(e) =>
             setForm((f) => ({ ...f, role: e.target.value as "admin" | "operator" | "viewer" }))
           }
-          className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-rps-olive-dark focus:outline-none"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-rps-olive-dark focus:outline-none"
         >
           {ROLE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -117,7 +118,7 @@ function UserForm({
       </div>
       {!isEdit && (
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">
+          <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             Senha inicial (mín. 8 caracteres)
           </label>
           <input
@@ -126,7 +127,7 @@ function UserForm({
             minLength={8}
             value={form.password}
             onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-rps-olive-dark focus:outline-none"
+            className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-rps-olive-dark focus:outline-none"
           />
           <p className="mt-1 text-xs text-gray-500">
             O usuário deve trocar a senha no primeiro login pela tela /me.
@@ -162,12 +163,12 @@ function ResetPasswordForm({
       }}
       className="space-y-3"
     >
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
         Definir nova senha para <strong>{user.email}</strong>. O usuário poderá entrar imediatamente
         com a senha nova.
       </p>
       <div>
-        <label className="mb-1 block text-xs font-medium text-gray-600">
+        <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
           Nova senha (mín. 8 caracteres)
         </label>
         <input
@@ -176,7 +177,7 @@ function ResetPasswordForm({
           minLength={8}
           value={pw}
           onChange={(e) => setPw(e.target.value)}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-rps-olive-dark focus:outline-none"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-rps-olive-dark focus:outline-none"
         />
       </div>
       <button
@@ -255,7 +256,7 @@ export default function UsersPage() {
 
   if (!isAdmin) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-600 shadow-sm">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 text-sm text-gray-600 dark:text-gray-400 shadow-sm">
         Permissão insuficiente para visualizar esta página.
       </div>
     );
@@ -263,8 +264,16 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Usuários</h1>
+      <div className="flex items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={includeInactive}
+            onChange={(e) => setIncludeInactive(e.target.checked)}
+            className="rounded border-gray-300 dark:border-gray-700"
+          />
+          Mostrar inativos
+        </label>
         <button
           onClick={() => setCreating(true)}
           className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
@@ -273,21 +282,9 @@ export default function UsersPage() {
         </button>
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-gray-700">
-        <input
-          type="checkbox"
-          checked={includeInactive}
-          onChange={(e) => setIncludeInactive(e.target.checked)}
-          className="rounded border-gray-300"
-        />
-        Mostrar inativos
-      </label>
-
-      {isLoading && <p className="text-sm text-gray-600">Carregando…</p>}
-
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-800">
             <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">Email</th>
@@ -297,12 +294,14 @@ export default function UsersPage() {
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            {isLoading &&
+              Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
             {users?.map((u) => {
               const isSelf = userId === u.id;
               return (
-                <tr key={u.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">
+                <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
                     {u.name}
                     {isSelf && (
                       <span className="ml-2 rounded bg-rps-sage-soft px-1.5 py-0.5 text-xs font-medium text-rps-olive-dark">
@@ -310,14 +309,14 @@ export default function UsersPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-700">{u.email}</td>
-                  <td className="px-4 py-3 text-gray-700">{ROLE_LABEL[u.role] ?? u.role}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{u.email}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{ROLE_LABEL[u.role] ?? u.role}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                         u.isActive
                           ? "bg-green-100 text-green-700"
-                          : "bg-gray-200 text-gray-600"
+                          : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
                       }`}
                     >
                       {u.isActive ? "Ativo" : "Inativo"}
@@ -330,13 +329,13 @@ export default function UsersPage() {
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => setEditing(u)}
-                        className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                       >
                         Editar
                       </button>
                       <button
                         onClick={() => setResetting(u)}
-                        className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                       >
                         Resetar senha
                       </button>
@@ -366,7 +365,7 @@ export default function UsersPage() {
             })}
             {users?.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-600">
+                <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
                   Nenhum usuário cadastrado.
                 </td>
               </tr>

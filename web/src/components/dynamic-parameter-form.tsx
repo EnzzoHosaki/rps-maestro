@@ -6,7 +6,7 @@ import type { ParameterField, ParameterSchema } from "@/lib/api";
 type Values = Record<string, string | boolean>;
 
 const inputCls =
-  "w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none";
+  "w-full rounded border border-gray-300 dark:border-gray-700 bg-white px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
 
 function isoToBr(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -89,13 +89,13 @@ export function DynamicParameterForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       {schema.length === 0 && (
-        <p className="text-sm text-gray-600">Nenhum parâmetro definido para esta automação.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">Nenhum parâmetro definido para esta automação.</p>
       )}
 
       {schema.map((f) => (
         <div key={f.name}>
           {f.type !== "boolean" && (
-            <label className="block text-xs font-medium text-gray-600 mb-1">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
               {f.label}
               {f.required && <span className="text-red-500 ml-0.5">*</span>}
             </label>
@@ -115,12 +115,12 @@ export function DynamicParameterForm({
               ))}
             </select>
           ) : f.type === "boolean" ? (
-            <label className="flex items-center gap-2 text-sm text-gray-900">
+            <label className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
               <input
                 type="checkbox"
                 checked={Boolean(values[f.name])}
                 onChange={(e) => set(f.name, e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300"
+                className="h-4 w-4 rounded border-gray-300 dark:border-gray-700"
               />
               {f.label}
               {f.required && <span className="text-red-500">*</span>}
