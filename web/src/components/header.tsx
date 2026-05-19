@@ -4,6 +4,33 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useAuth } from "@/lib/auth";
+import { useTheme, type ThemePref } from "@/lib/theme";
+
+const THEME_LABEL: Record<ThemePref, string> = {
+  light: "Tema: claro",
+  dark: "Tema: escuro",
+  system: "Tema: sistema",
+};
+
+const THEME_ICON: Record<ThemePref, string> = {
+  light: "☀",
+  dark: "☾",
+  system: "⌒",
+};
+
+function ThemeToggle() {
+  const { pref, cycle } = useTheme();
+  return (
+    <button
+      onClick={cycle}
+      className="flex h-8 w-8 items-center justify-center rounded-md text-base text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+      title={`${THEME_LABEL[pref]} — clique pra trocar`}
+      aria-label={THEME_LABEL[pref]}
+    >
+      {THEME_ICON[pref]}
+    </button>
+  );
+}
 
 const PAGE_TITLES: Array<{ match: (p: string) => boolean; title: string }> = [
   { match: (p) => p === "/", title: "Dashboard" },
@@ -36,7 +63,9 @@ export function Header() {
         {pageTitle(pathname)}
       </h1>
 
-      {email && (
+      <div className="flex items-center gap-2">
+        <ThemeToggle />
+        {email && (
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
@@ -83,7 +112,8 @@ export function Header() {
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
-      )}
+        )}
+      </div>
     </header>
   );
 }
