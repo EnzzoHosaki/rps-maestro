@@ -1,16 +1,21 @@
 @import "tailwindcss";
 
+/* Tailwind v4: dark: passa a reagir à classe `.dark` no <html> em vez do
+   media query nativo. O ThemeProvider em @/lib/theme.tsx adiciona/remove
+   essa classe conforme a preferência (light / dark / system). Pra
+   preferência "system", o provider observa prefers-color-scheme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -31,11 +36,8 @@
   --color-rps-olive-darker: #3e4a37;
 }
 
-/* Dark mode via prefers-color-scheme — agora com variantes `dark:` em
-   todas as cores hardcoded (PR #8). O bug antigo de "body escuro / caixas
-   brancas" foi resolvido aplicando dark: nas surfaces. color-scheme
-   declarado em :root garante que form controls nativos (input, select,
-   scrollbar) adaptem sem fix manual. */
+/* color-scheme em :root e .dark garante que form controls nativos
+   (input, select, scrollbar) adaptem sem fix manual. */
 
 body {
   background: var(--background);

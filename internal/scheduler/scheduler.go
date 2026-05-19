@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/queue"
@@ -127,6 +128,11 @@ func (s *Scheduler) runSchedule(scheduleID int) {
 		log.Printf("[scheduler] parâmetros inválidos no agendamento %d: %v", scheduleID, err)
 		return
 	}
+
+	// Expande placeholders de data ({{today}}, {{yesterday}}, {{today-N}}…)
+	// antes de serializar — assim cada disparo do cron tem datas frescas
+	// relativas ao momento da execução, em vez da data salva no schedule.
+	params = ExpandDatePlaceholders(params, time.Now())
 
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
