@@ -159,6 +159,7 @@ function ScheduleForm({
                 initial={form.parameters}
                 submitLabel={loading ? "Salvando…" : "Salvar agendamento"}
                 loading={loading}
+                allowDynamicPlaceholders
                 onSubmit={(params) => onSubmit({ ...form, parameters: params })}
               />
             </>

@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ParameterField, ParameterSchema } from "@/lib/api";
 
 type Values = Record<string, string | boolean>;
 
 const inputCls =
-  "w-full rounded border border-gray-300 dark:border-gray-700 bg-white px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
+  "w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
 
 function isoToBr(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -18,12 +18,19 @@ function brToIso(br: string): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : br;
 }
 
+function looksLikePlaceholder(v: unknown): boolean {
+  return typeof v === "string" && v.includes("{{");
+}
+
 function initialDisplay(field: ParameterField, initial: unknown): string | boolean {
   if (initial === undefined || initial === null) {
     return field.type === "boolean" ? false : "";
   }
   if (field.type === "boolean") return Boolean(initial);
   if (field.type === "list" && Array.isArray(initial)) return initial.join(", ");
+  // Placeholder dinâmico chega como string — passa direto, sem tentar
+  // converter pra ISO/etc. O usuário verá o {{...}} no input de texto.
+  if (looksLikePlaceholder(initial)) return String(initial);
   if (field.type === "date" && typeof initial === "string") return brToIso(initial);
   return String(initial);
 }
@@ -43,6 +50,8 @@ function coerce(field: ParameterField, raw: string | boolean): unknown {
   if (field.type === "boolean") return Boolean(raw);
   const s = String(raw);
   if (s === "") return undefined;
+  // Placeholder dinâmico passa cru — quem expande é o backend no scheduler.
+  if (s.includes("{{")) return s;
   if (field.type === "number") {
     const n = Number(s);
     return Number.isNaN(n) ? s : n;
@@ -58,18 +67,55 @@ export function DynamicParameterForm({
   submitLabel,
   onSubmit,
   loading,
+  allowDynamicPlaceholders = false,
 }: {
   schema: ParameterSchema;
   initial?: Record<string, unknown>;
   submitLabel: string;
   onSubmit: (values: Record<string, unknown>) => void;
   loading?: boolean;
+  /**
+   * Quando true, campos `date` e `number` ganham um botão "fx" que
+   * converte o input pra texto livre — pra digitar placeholders tipo
+   * {{yesterday}} que o scheduler expande na execução. Default false
+   * (execução manual não suporta placeholders).
+   */
+  allowDynamicPlaceholders?: boolean;
 }) {
   const [values, setValues] = useState<Values>(() => {
     const v: Values = {};
     for (const f of schema) v[f.name] = initialDisplay(f, initial?.[f.name]);
     return v;
   });
+
+  // Detecta valores iniciais que já vêm como placeholder pra entrar em
+  // modo dinâmico automaticamente, sem precisar do usuário clicar.
+  const initialDynamic = useMemo(() => {
+    const s = new Set<string>();
+    if (!allowDynamicPlaceholders || !initial) return s;
+    for (const f of schema) {
+      if ((f.type === "date" || f.type === "number") && looksLikePlaceholder(initial[f.name])) {
+        s.add(f.name);
+      }
+    }
+    return s;
+  }, [schema, initial, allowDynamicPlaceholders]);
+
+  const [dynamicFields, setDynamicFields] = useState<Set<string>>(initialDynamic);
+
+  const isDynamic = (name: string) => dynamicFields.has(name);
+  const setDynamic = (name: string, on: boolean) => {
+    setDynamicFields((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(name);
+      else next.delete(name);
+      return next;
+    });
+    // Ao trocar de modo, limpa o valor — formatos não se traduzem entre
+    // input nativo (ISO/number) e texto livre (placeholder), e tentar
+    // converter geraria valores estranhos.
+    setValues((v) => ({ ...v, [name]: "" }));
+  };
 
   const set = (name: string, raw: string | boolean) =>
     setValues((v) => ({ ...v, [name]: raw }));
@@ -86,10 +132,106 @@ export function DynamicParameterForm({
     onSubmit(out);
   };
 
+  function renderField(f: ParameterField) {
+    const canToggleDynamic =
+      allowDynamicPlaceholders && (f.type === "date" || f.type === "number");
+    const dyn = isDynamic(f.name);
+
+    if (dyn) {
+      return (
+        <div className="flex gap-2">
+          <input
+            required={f.required}
+            type="text"
+            placeholder="ex: {{yesterday}} ou {{today-2}}"
+            value={String(values[f.name] ?? "")}
+            onChange={(e) => set(f.name, e.target.value)}
+            className={`${inputCls} font-mono`}
+          />
+          <button
+            type="button"
+            onClick={() => setDynamic(f.name, false)}
+            title="Voltar pro input normal"
+            className="shrink-0 rounded border border-gray-300 bg-white px-2 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+          >
+            ↺
+          </button>
+        </div>
+      );
+    }
+
+    if (f.type === "select") {
+      return (
+        <select
+          required={f.required}
+          value={String(values[f.name] ?? "")}
+          onChange={(e) => set(f.name, e.target.value)}
+          className={inputCls}
+        >
+          <option value="">Selecione…</option>
+          {(f.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+    if (f.type === "list") {
+      return (
+        <textarea
+          required={f.required}
+          placeholder={
+            f.placeholder ??
+            (f.itemType === "number"
+              ? "Ex: 4814, 6861, 11118 (separe por vírgula ou linha)"
+              : "Um item por linha ou separados por vírgula")
+          }
+          value={String(values[f.name] ?? "")}
+          onChange={(e) => set(f.name, e.target.value)}
+          rows={3}
+          className={`${inputCls} font-mono`}
+        />
+      );
+    }
+
+    const nativeInput = (
+      <input
+        required={f.required}
+        type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"}
+        placeholder={f.placeholder}
+        value={String(values[f.name] ?? "")}
+        onChange={(e) => set(f.name, e.target.value)}
+        className={inputCls}
+      />
+    );
+
+    if (canToggleDynamic) {
+      return (
+        <div className="flex gap-2">
+          {nativeInput}
+          <button
+            type="button"
+            onClick={() => setDynamic(f.name, true)}
+            title="Usar placeholder dinâmico ({{yesterday}}, {{today-N}}…)"
+            className="shrink-0 rounded border border-gray-300 bg-white px-2 text-xs font-mono text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+          >
+            fx
+          </button>
+        </div>
+      );
+    }
+
+    return nativeInput;
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       {schema.length === 0 && (
-        <p className="text-sm text-gray-600 dark:text-gray-400">Nenhum parâmetro definido para esta automação.</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Nenhum parâmetro definido para esta automação.
+        </p>
       )}
 
       {schema.map((f) => (
@@ -100,21 +242,7 @@ export function DynamicParameterForm({
               {f.required && <span className="text-red-500 ml-0.5">*</span>}
             </label>
           )}
-          {f.type === "select" ? (
-            <select
-              required={f.required}
-              value={String(values[f.name] ?? "")}
-              onChange={(e) => set(f.name, e.target.value)}
-              className={inputCls}
-            >
-              <option value="">Selecione…</option>
-              {(f.options ?? []).map((o) => (
-                <option key={o} value={o}>
-                  {o}
-                </option>
-              ))}
-            </select>
-          ) : f.type === "boolean" ? (
+          {f.type === "boolean" ? (
             <label className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
               <input
                 type="checkbox"
@@ -125,29 +253,8 @@ export function DynamicParameterForm({
               {f.label}
               {f.required && <span className="text-red-500">*</span>}
             </label>
-          ) : f.type === "list" ? (
-            <textarea
-              required={f.required}
-              placeholder={
-                f.placeholder ??
-                (f.itemType === "number"
-                  ? "Ex: 4814, 6861, 11118 (separe por vírgula ou linha)"
-                  : "Um item por linha ou separados por vírgula")
-              }
-              value={String(values[f.name] ?? "")}
-              onChange={(e) => set(f.name, e.target.value)}
-              rows={3}
-              className={`${inputCls} font-mono`}
-            />
           ) : (
-            <input
-              required={f.required}
-              type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"}
-              placeholder={f.placeholder}
-              value={String(values[f.name] ?? "")}
-              onChange={(e) => set(f.name, e.target.value)}
-              className={inputCls}
-            />
+            renderField(f)
           )}
         </div>
       ))}
