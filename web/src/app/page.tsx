@@ -14,17 +14,20 @@ import {
 } from "@/lib/api";
 import { STATUS_LABEL, STATUS_STYLE } from "@/lib/jobs";
 import { JobPanel } from "@/components/job-panel";
+import { Skeleton } from "@/components/skeleton";
 
 function StatCard({
   label,
   value,
   hint,
   tone = "neutral",
+  loading = false,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   tone?: "neutral" | "success" | "warning" | "danger";
+  loading?: boolean;
 }) {
   const accent =
     tone === "success"
@@ -33,11 +36,15 @@ function StatCard({
         ? "text-yellow-700"
         : tone === "danger"
           ? "text-red-700"
-          : "text-gray-900";
+          : "text-gray-900 dark:text-gray-100";
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm">
       <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${accent}`}>{value}</p>
+      {loading ? (
+        <Skeleton className="mt-2 h-7 w-16" />
+      ) : (
+        <p className={`mt-1 text-2xl font-bold ${accent}`}>{value}</p>
+      )}
       {hint && <p className="mt-0.5 text-xs text-gray-500">{hint}</p>}
     </div>
   );
@@ -131,7 +138,7 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
 
 function ChartLegend() {
   return (
-    <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600">
+    <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400">
       <span className="flex items-center gap-1">
         <span className="inline-block h-2 w-2 rounded-sm bg-[#a7baa6]" /> sucesso
       </span>
@@ -204,34 +211,37 @@ export default function DashboardPage() {
       ? `${Math.round(metrics.successRate24h * 100)}%`
       : "—";
 
+  const metricsLoading = !metrics;
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <StatCard
           label="Rodando"
           value={metrics?.running ?? "—"}
           tone={metrics?.running ? "success" : "neutral"}
+          loading={metricsLoading}
         />
-        <StatCard label="Pendentes" value={metrics?.pending ?? "—"} />
-        <StatCard label="Concluídos hoje" value={metrics?.completedToday ?? "—"} />
+        <StatCard label="Pendentes" value={metrics?.pending ?? "—"} loading={metricsLoading} />
+        <StatCard label="Concluídos hoje" value={metrics?.completedToday ?? "—"} loading={metricsLoading} />
         <StatCard
           label="Falhas 24h"
           value={metrics?.failedLast24h ?? "—"}
           tone={metrics?.failedLast24h ? "danger" : "neutral"}
+          loading={metricsLoading}
         />
-        <StatCard label="Cancelados 24h" value={metrics?.canceledLast24h ?? "—"} />
+        <StatCard label="Cancelados 24h" value={metrics?.canceledLast24h ?? "—"} loading={metricsLoading} />
         <StatCard
           label="Sucesso 24h"
           value={successRateLabel}
           hint={metrics ? `${metrics.totalLast24h} finalizados` : undefined}
+          loading={metricsLoading}
         />
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold text-gray-700">Jobs por hora · últimas 24h</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Jobs por hora · últimas 24h</h2>
           <span className="text-xs text-gray-500">
             {metrics ? `${metrics.totalLast24h} no período` : "—"}
           </span>
@@ -241,9 +251,9 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
           <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Rodando agora</h2>
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Rodando agora</h2>
             <span className="text-xs text-gray-500">
               {activeJobs.length === 0
                 ? "Nenhum job ativo"
@@ -253,11 +263,11 @@ export default function DashboardPage() {
           {activeJobs.length === 0 ? (
             <p className="py-4 text-sm text-gray-500">Sem jobs em andamento no momento.</p>
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {activeJobs.map((j) => (
                 <li
                   key={j.id}
-                  className="flex cursor-pointer items-center gap-3 py-2 hover:bg-gray-50"
+                  className="flex cursor-pointer items-center gap-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                   onClick={() => setSelectedJobId(j.id)}
                 >
                   <span
@@ -265,7 +275,7 @@ export default function DashboardPage() {
                   >
                     {STATUS_LABEL[j.status]}
                   </span>
-                  <span className="flex-1 truncate text-sm font-medium text-gray-900">
+                  <span className="flex-1 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                     {automationName(j.automationId)}
                   </span>
                   <span className="font-mono text-xs text-gray-500">
@@ -283,27 +293,27 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
           <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Últimas falhas</h2>
-            <Link href="/jobs?status=failed" className="text-xs text-gray-500 hover:text-gray-700">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Últimas falhas</h2>
+            <Link href="/jobs?status=failed" className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-300">
               ver tudo
             </Link>
           </div>
           {recentFailures.length === 0 ? (
             <p className="py-4 text-sm text-gray-500">Nenhuma falha recente. 🎉</p>
           ) : (
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {recentFailures.map((j) => (
                 <li
                   key={j.id}
-                  className="flex cursor-pointer items-center gap-3 py-2 hover:bg-gray-50"
+                  className="flex cursor-pointer items-center gap-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                   onClick={() => setSelectedJobId(j.id)}
                 >
                   <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
                     Falhou
                   </span>
-                  <span className="flex-1 truncate text-sm font-medium text-gray-900">
+                  <span className="flex-1 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                     {automationName(j.automationId)}
                   </span>
                   <span className="font-mono text-xs text-gray-500">

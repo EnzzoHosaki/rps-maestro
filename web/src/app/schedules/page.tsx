@@ -7,6 +7,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
 import { useAuth } from "@/lib/auth";
+import { SkeletonRow } from "@/components/skeleton";
 
 type FormData = {
   automationId: number;
@@ -28,10 +29,10 @@ function Modal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl`}>
+      <div className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-gray-900 p-6 shadow-xl`}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-900 text-xl leading-none">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-900 dark:text-gray-100 text-xl leading-none">
             ×
           </button>
         </div>
@@ -66,14 +67,14 @@ function ScheduleForm({
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Automação</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Automação</label>
         <select
           required
           value={form.automationId}
           onChange={(e) =>
             setForm((f) => ({ ...f, automationId: Number(e.target.value), parameters: {} }))
           }
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none focus:ring-2 focus:ring-rps-olive-dark"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none focus:ring-2 focus:ring-rps-olive-dark"
         >
           <option value={0} disabled>
             Selecione…
@@ -87,13 +88,13 @@ function ScheduleForm({
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Expressão Cron</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Expressão Cron</label>
         <input
           required
           value={form.cronExpression}
           onChange={(e) => setForm((f) => ({ ...f, cronExpression: e.target.value }))}
           placeholder="0 8 * * *"
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none focus:ring-2 focus:ring-rps-olive-dark"
+          className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none focus:ring-2 focus:ring-rps-olive-dark"
         />
         <div className="mt-1 flex flex-wrap gap-1">
           {CRON_PRESETS.map((p) => (
@@ -101,7 +102,7 @@ function ScheduleForm({
               type="button"
               key={p.value}
               onClick={() => setForm((f) => ({ ...f, cronExpression: p.value }))}
-              className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-200"
+              className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               {p.label}
             </button>
@@ -115,18 +116,18 @@ function ScheduleForm({
           id="enabled"
           checked={form.isEnabled}
           onChange={(e) => setForm((f) => ({ ...f, isEnabled: e.target.checked }))}
-          className="rounded border-gray-300"
+          className="rounded border-gray-300 dark:border-gray-700"
         />
-        <label htmlFor="enabled" className="text-sm text-gray-700">
+        <label htmlFor="enabled" className="text-sm text-gray-700 dark:text-gray-300">
           Ativo
         </label>
       </div>
 
       {form.automationId > 0 && (
         <div className="border-t pt-3">
-          <p className="text-xs font-medium text-gray-600 mb-2">Parâmetros</p>
+          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Parâmetros</p>
           {schema.length === 0 ? (
-            <p className="text-xs text-gray-600">Esta automação não define parâmetros.</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">Esta automação não define parâmetros.</p>
           ) : (
             <DynamicParameterForm
               schema={schema}
@@ -208,23 +209,20 @@ export default function SchedulesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Agendamentos</h1>
-        {isAdmin && (
+      {isAdmin && (
+        <div className="flex justify-end">
           <button
             onClick={() => setCreating(true)}
             className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
           >
             + Novo agendamento
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {isLoading && <p className="text-sm text-gray-600">Carregando…</p>}
-
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-800">
             <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               <th className="px-4 py-3">Automação</th>
               <th className="px-4 py-3">Cron</th>
@@ -233,10 +231,12 @@ export default function SchedulesPage() {
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            {isLoading &&
+              Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
             {schedules?.map((s) => (
-              <tr key={s.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{getAutoName(s.automationId)}</td>
+              <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{getAutoName(s.automationId)}</td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.cronExpression}</td>
                 <td className="px-4 py-3 text-gray-500">
                   {s.nextRunAt
@@ -250,7 +250,7 @@ export default function SchedulesPage() {
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         s.isEnabled
                           ? "bg-green-100 text-green-700 hover:bg-green-200"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          : "bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
                       }`}
                     >
                       {s.isEnabled ? "Ativo" : "Inativo"}
@@ -260,7 +260,7 @@ export default function SchedulesPage() {
                       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                         s.isEnabled
                           ? "bg-green-100 text-green-700"
-                          : "bg-gray-100 text-gray-500"
+                          : "bg-gray-100 dark:bg-gray-800 text-gray-500"
                       }`}
                     >
                       {s.isEnabled ? "Ativo" : "Inativo"}
@@ -272,7 +272,7 @@ export default function SchedulesPage() {
                     <div className="flex gap-2 justify-end">
                       <button
                         onClick={() => setEditing(s)}
-                        className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                       >
                         Editar
                       </button>
@@ -291,7 +291,7 @@ export default function SchedulesPage() {
             ))}
             {schedules?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-gray-600 text-sm">
+                <td colSpan={5} className="px-4 py-6 text-center text-gray-600 dark:text-gray-400 text-sm">
                   Nenhum agendamento cadastrado.
                 </td>
               </tr>
