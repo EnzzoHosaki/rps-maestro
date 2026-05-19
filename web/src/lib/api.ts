@@ -69,13 +69,41 @@ export type JobStatus =
   | "failed"
   | "canceled";
 
+// Convenção de shape do result.summary quando a automação separa
+// resultado por item processado (empresa, loja, conta etc.). Documentado em
+// docs/automations.md. Workers podem omitir o summary inteiro ou usar uma
+// shape totalmente diferente — o front renderiza tipado quando detecta
+// qualquer um dos campos abaixo, e cai pra KV genérico caso contrário.
+export interface TypedResultSummary {
+  ok?: string[];
+  failed?: Array<{
+    empresa?: string;
+    error_class?: string;
+    error_type?: string;
+    message?: string;
+    [key: string]: unknown;
+  }>;
+  no_data?: string[];
+  skipped?: string[];
+  [key: string]: unknown;
+}
+
+export interface JobResult {
+  partial_success?: boolean;
+  summary?: TypedResultSummary | Record<string, unknown>;
+  error?: string;
+  error_type?: string;
+  error_class?: string;
+  [key: string]: unknown;
+}
+
 export interface Job {
   id: string;
   automationId: number;
   userId?: number;
   status: JobStatus;
   parameters?: Record<string, unknown>;
-  result?: Record<string, unknown>;
+  result?: JobResult;
   startedAt?: string;
   completedAt?: string;
   cancellationRequestedAt?: string;
@@ -89,6 +117,10 @@ export interface JobLog {
   timestamp: string;
   level: string;
   message: string;
+  // Worker sinaliza linhas que demandam intervenção humana ("senha errada na
+  // Sheet, corrija agora") vs. transitórias que ele mesmo está tratando
+  // (retry automático). UI destaca actionable=true. Default false no DB.
+  actionable?: boolean;
 }
 
 export interface JobListFilter {
