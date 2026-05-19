@@ -194,7 +194,14 @@ export function JobPanel({
           </p>
         ) : (
           logs.map((l) => (
-            <div key={l.id} className="mb-1 flex gap-2">
+            <div
+              key={l.id}
+              className={`mb-1 flex gap-2 ${
+                l.actionable
+                  ? "border-l-2 border-amber-400 bg-amber-500/10 py-0.5 pl-2"
+                  : ""
+              }`}
+            >
               <span className="shrink-0 text-gray-600 dark:text-gray-400">
                 {format(new Date(l.timestamp), "HH:mm:ss")}
               </span>
@@ -205,6 +212,15 @@ export function JobPanel({
               >
                 {l.level.slice(0, 4)}
               </span>
+              {l.actionable && (
+                <span
+                  className="shrink-0 text-amber-400"
+                  title="Requer ação do operador"
+                  aria-label="Requer ação do operador"
+                >
+                  ⚠
+                </span>
+              )}
               <span
                 className={`whitespace-pre-wrap break-words ${
                   LOG_COLOR[l.level.toUpperCase()] ?? "text-gray-300"

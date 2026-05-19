@@ -79,11 +79,12 @@ type JobListFilter struct {
 }
 
 type JobLog struct {
-	ID        int64     `db:"id" json:"id"`
-	JobID     uuid.UUID `db:"job_id" json:"jobId"`
-	Timestamp time.Time `db:"timestamp" json:"timestamp"`
-	Level     string    `db:"level" json:"level"`
-	Message   string    `db:"message" json:"message"`
+	ID         int64     `db:"id" json:"id"`
+	JobID      uuid.UUID `db:"job_id" json:"jobId"`
+	Timestamp  time.Time `db:"timestamp" json:"timestamp"`
+	Level      string    `db:"level" json:"level"`
+	Message    string    `db:"message" json:"message"`
+	Actionable bool      `db:"actionable" json:"actionable"`
 }
 
 type Schedule struct {

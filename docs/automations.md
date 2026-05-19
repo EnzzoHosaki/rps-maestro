@@ -206,6 +206,32 @@ Content-Type: application/json
 
 Levels válidos: `DEBUG`, `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL`.
 
+#### Campo opcional `actionable: bool`
+
+```http
+POST /api/v1/worker/jobs/9e3b1f4c.../log
+Content-Type: application/json
+
+{
+  "level": "ERROR",
+  "message": "Credencial da EMPRESA_C inválida — atualize a senha na Sheet de credenciais",
+  "actionable": true
+}
+```
+
+Quando `actionable: true`, a linha aparece no painel com **borda lateral âmbar e ícone ⚠**, separando "ERROR que o operador precisa atender agora" de "ERROR transitório que o worker já está retentando". Default é `false` — workers existentes não precisam mudar nada.
+
+**Quando usar `actionable: true`:**
+
+| ✅ Sim                                                                 | ❌ Não                                                          |
+|------------------------------------------------------------------------|-----------------------------------------------------------------|
+| Credencial expirada/inválida (operador atualiza a Sheet)              | Timeout transitório que o worker já está retentando             |
+| Share / banco / FTP de destino inacessível (TI precisa subir)         | Erro genérico que o worker resolve sozinho                      |
+| Capsolver esgotou créditos (financeiro recarrega)                     | Captcha individual que retentou e funcionou                     |
+| Parâmetros do job claramente inválidos (operador refaz)                | Mensagens informativas — esses ficam só com `level: INFO`       |
+
+Marque generosamente: o destaque âmbar é o único sinal que diferencia "preciso agir" de "vai dar certo na próxima tentativa".
+
 ### 5.3 `POST /worker/jobs/:id/finish`
 
 Chame **uma única vez no fim**, com o status terminal.

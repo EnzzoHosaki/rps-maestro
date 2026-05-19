@@ -10,14 +10,15 @@ import (
 )
 
 func (r *PostgresJobLogRepository) Create(ctx context.Context, log *models.JobLog) error {
-	sql := `INSERT INTO job_logs (job_id, level, message)
-	        VALUES ($1, $2, $3)
+	sql := `INSERT INTO job_logs (job_id, level, message, actionable)
+	        VALUES ($1, $2, $3, $4)
 	        RETURNING id, timestamp`
 
 	err := r.db.QueryRow(ctx, sql,
 		log.JobID,
 		log.Level,
 		log.Message,
+		log.Actionable,
 	).Scan(&log.ID, &log.Timestamp)
 
 	if err != nil {
@@ -27,7 +28,7 @@ func (r *PostgresJobLogRepository) Create(ctx context.Context, log *models.JobLo
 }
 
 func (r *PostgresJobLogRepository) GetByJobID(ctx context.Context, jobID uuid.UUID) ([]models.JobLog, error) {
-	sql := `SELECT id, job_id, timestamp, level, message
+	sql := `SELECT id, job_id, timestamp, level, message, actionable
 	        FROM job_logs
 	        WHERE job_id = $1
 	        ORDER BY timestamp ASC`
@@ -54,7 +55,7 @@ func (r *PostgresJobLogRepository) ListSince(ctx context.Context, jobID uuid.UUI
 		limit = 500
 	}
 
-	sql := `SELECT id, job_id, timestamp, level, message
+	sql := `SELECT id, job_id, timestamp, level, message, actionable
 	        FROM job_logs
 	        WHERE job_id = $1 AND id > $2
 	        ORDER BY id ASC

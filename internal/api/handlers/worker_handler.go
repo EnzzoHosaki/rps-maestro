@@ -60,8 +60,9 @@ func (h *WorkerHandler) HandleJobLog(c *gin.Context) {
 	}
 
 	var logRequest struct {
-		Level   string `json:"level" binding:"required"`
-		Message string `json:"message" binding:"required"`
+		Level      string `json:"level" binding:"required"`
+		Message    string `json:"message" binding:"required"`
+		Actionable bool   `json:"actionable"`
 	}
 
 	if err := c.ShouldBindJSON(&logRequest); err != nil {
@@ -90,9 +91,10 @@ func (h *WorkerHandler) HandleJobLog(c *gin.Context) {
 	}
 
 	jobLog := &models.JobLog{
-		JobID:   jobID,
-		Level:   logRequest.Level,
-		Message: logRequest.Message,
+		JobID:      jobID,
+		Level:      logRequest.Level,
+		Message:    logRequest.Message,
+		Actionable: logRequest.Actionable,
 	}
 
 	if err := h.jobLogRepo.Create(c.Request.Context(), jobLog); err != nil {

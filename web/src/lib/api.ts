@@ -117,6 +117,10 @@ export interface JobLog {
   timestamp: string;
   level: string;
   message: string;
+  // Worker sinaliza linhas que demandam intervenção humana ("senha errada na
+  // Sheet, corrija agora") vs. transitórias que ele mesmo está tratando
+  // (retry automático). UI destaca actionable=true. Default false no DB.
+  actionable?: boolean;
 }
 
 export interface JobListFilter {
