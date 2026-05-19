@@ -143,7 +143,7 @@ export function DynamicParameterForm({
           <input
             required={f.required}
             type="text"
-            placeholder="ex: {{yesterday}} ou {{today-2}}"
+            placeholder="ex: {{yesterday}}, {{today-2}}, {{first_of_last_month}}"
             value={String(values[f.name] ?? "")}
             onChange={(e) => set(f.name, e.target.value)}
             className={`${inputCls} font-mono`}
@@ -214,7 +214,7 @@ export function DynamicParameterForm({
           <button
             type="button"
             onClick={() => setDynamic(f.name, true)}
-            title="Usar placeholder dinâmico ({{yesterday}}, {{today-N}}…)"
+            title="Usar placeholder dinâmico ({{yesterday}}, {{today-N}}, {{first_of_month}}…)"
             className="shrink-0 rounded border border-gray-300 bg-white px-2 text-xs font-mono text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
           >
             fx
