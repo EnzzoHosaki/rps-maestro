@@ -9,6 +9,10 @@ import { automationsApi, jobsApi, type JobStatus } from "@/lib/api";
 import {
   STATUS_LABEL,
   STATUS_STYLE,
+  ERROR_CLASSES,
+  errorClassLabel,
+  errorClassStyle,
+  getJobErrorClass,
   isActiveStatus,
   isRetryableStatus,
   jobErrorMessage,
@@ -33,6 +37,7 @@ export default function JobsPage() {
   const { isOperatorPlus } = useAuth();
   const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all");
   const [automationFilter, setAutomationFilter] = useState<number | "all">("all");
+  const [errorClassFilter, setErrorClassFilter] = useState<string | "all">("all");
   const [offset, setOffset] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
@@ -82,7 +87,15 @@ export default function JobsPage() {
   });
 
   const total = listQuery.data?.total ?? 0;
-  const items = listQuery.data?.items ?? [];
+  const allItems = listQuery.data?.items ?? [];
+  // Filtro de error_class é client-side por enquanto: o backend não indexa
+  // por chave dentro do JSONB de result. Volume hoje é baixo (centenas/dia)
+  // então filtrar a página atual em memória cobre. Se virar gargalo,
+  // promove pra query param + WHERE result->>'error_class' = $1.
+  const items =
+    errorClassFilter === "all"
+      ? allItems
+      : allItems.filter((j) => getJobErrorClass(j) === errorClassFilter);
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -134,6 +147,20 @@ export default function JobsPage() {
             </option>
           ))}
         </select>
+
+        <select
+          value={errorClassFilter}
+          onChange={(e) => setErrorClassFilter(e.target.value)}
+          title="Filtra por categoria de erro na página atual"
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+        >
+          <option value="all">Toda categoria</option>
+          {ERROR_CLASSES.map((c) => (
+            <option key={c} value={c}>
+              {errorClassLabel(c)}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
@@ -150,6 +177,7 @@ export default function JobsPage() {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {items.map((j) => {
               const automation = automations.find((a) => a.id === j.automationId);
+              const errCls = getJobErrorClass(j);
               return (
                 <tr key={j.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td
@@ -165,11 +193,29 @@ export default function JobsPage() {
                     {automation?.name ?? j.automationId}
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[j.status]}`}
-                    >
-                      {STATUS_LABEL[j.status]}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[j.status]}`}
+                      >
+                        {STATUS_LABEL[j.status]}
+                      </span>
+                      {errCls && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${errorClassStyle(errCls)}`}
+                          title={errCls}
+                        >
+                          {errorClassLabel(errCls)}
+                        </span>
+                      )}
+                      {j.result?.partial_success === true && (
+                        <span
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                          title="Parte dos itens processou com sucesso"
+                        >
+                          parcial
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500">
                     {formatDistanceToNow(new Date(j.createdAt), {

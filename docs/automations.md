@@ -206,6 +206,32 @@ Content-Type: application/json
 
 Levels válidos: `DEBUG`, `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL`.
 
+#### Campo opcional `actionable: bool`
+
+```http
+POST /api/v1/worker/jobs/9e3b1f4c.../log
+Content-Type: application/json
+
+{
+  "level": "ERROR",
+  "message": "Credencial da EMPRESA_C inválida — atualize a senha na Sheet de credenciais",
+  "actionable": true
+}
+```
+
+Quando `actionable: true`, a linha aparece no painel com **borda lateral âmbar e ícone ⚠**, separando "ERROR que o operador precisa atender agora" de "ERROR transitório que o worker já está retentando". Default é `false` — workers existentes não precisam mudar nada.
+
+**Quando usar `actionable: true`:**
+
+| ✅ Sim                                                                 | ❌ Não                                                          |
+|------------------------------------------------------------------------|-----------------------------------------------------------------|
+| Credencial expirada/inválida (operador atualiza a Sheet)              | Timeout transitório que o worker já está retentando             |
+| Share / banco / FTP de destino inacessível (TI precisa subir)         | Erro genérico que o worker resolve sozinho                      |
+| Capsolver esgotou créditos (financeiro recarrega)                     | Captcha individual que retentou e funcionou                     |
+| Parâmetros do job claramente inválidos (operador refaz)                | Mensagens informativas — esses ficam só com `level: INFO`       |
+
+Marque generosamente: o destaque âmbar é o único sinal que diferencia "preciso agir" de "vai dar certo na próxima tentativa".
+
 ### 5.3 `POST /worker/jobs/:id/finish`
 
 Chame **uma única vez no fim**, com o status terminal.
@@ -229,7 +255,73 @@ Status válidos:
 | `failed`                  | Exceção, erro do portal externo, etc.                                        |
 | `canceled`                | Você detectou pedido de cancelamento e abortou com graça                     |
 
+#### 5.3.1 Categorias canônicas de erro (`result.error_class`)
+
+Quando o job termina com `failed` (ou `completed` + `partial_success`), categorize a causa principal em `result.error_class` usando uma das strings canônicas abaixo. O painel ganha um chip colorido por categoria e a listagem `/jobs` filtra por categoria na página atual.
+
+| `error_class`                | Significado                                                                 | Tone  |
+|------------------------------|-------------------------------------------------------------------------------|-------|
+| `CREDENTIAL_INVALID`         | Usuário/senha rejeitados pelo portal externo (operador precisa atualizar)    | red   |
+| `IP_BLOCKED`                 | Portal bloqueou nosso IP — exige proxy ou janela de espera                   | red   |
+| `CAPTCHA_FAILED`             | Capsolver falhou ou retornou solução inválida                                 | red   |
+| `INFRA_DESTINO_INDISPONIVEL` | Compartilhamento / banco / FTP de destino caído                              | red   |
+| `INVALID_PARAMETERS`         | Parâmetros recebidos do Maestro não passam na validação inicial              | red   |
+| `RATE_LIMITED`               | Portal devolveu 429 ou equivalente — transitório                             | amber |
+| `PORTAL_DOWN`                | Portal externo retornou 5xx persistente — transitório                        | amber |
+| `JOB_TIMEOUT`                | Heartbeat expirou ou loop interno estourou tempo                             | amber |
+| `PARTIAL_FAILURE`            | Use junto com `partial_success: true` quando categorizar o conjunto         | amber |
+| `UNKNOWN`                    | Fallback — só use se realmente não se encaixar em nenhuma das acima          | gray  |
+
+`error_class` é independente de `error_type` (que continua sendo o nome técnico da exceção/classe Python, útil só pra debug). Use os dois: `error_class` é UX, `error_type` é forense.
+
+Workers que processam N unidades também podem repetir `error_class` dentro de cada item de `summary.failed[]` — útil quando categorias variam por unidade (uma empresa com `CREDENTIAL_INVALID`, outra com `RATE_LIMITED`).
+
 `result` é `map[string]any` livre — fica salvo no job e visível no painel.
+
+#### Convenções de `result` (opcionais, mas a UI sabe destacar)
+
+Workers podem mandar qualquer shape em `result`. Quando você adotar os campos abaixo, o painel passa a renderizar de forma especial:
+
+| Campo                  | Tipo                          | Efeito na UI                                                              |
+|------------------------|-------------------------------|----------------------------------------------------------------------------|
+| `partial_success`      | `bool`                        | Chip "parcial" amarelo ao lado do status — sinaliza que algumas unidades falharam |
+| `summary.ok`           | `string[]`                    | Lista verde de itens processados com sucesso, com contagem                |
+| `summary.failed`       | `Array<{empresa, error_class, error_type, message}>` | Lista vermelha de falhas, com error_class destacado quando presente |
+| `summary.no_data`      | `string[]`                    | Lista amarela de itens sem dados                                          |
+| `summary.skipped`      | `string[]`                    | Lista cinza de itens pulados                                              |
+| `error`                | `string`                      | Mensagem de erro destacada em vermelho no topo do resultado               |
+| `error_class`          | `string`                      | Categoria semântica do erro (ver seção 5.3.1) — vira chip vermelho        |
+| `error_type`           | `string`                      | Nome técnico da exceção (debug), mostrado em fonte mono cinza             |
+
+Quando `summary` tem qualquer um de `ok/failed/no_data/skipped` (subset), o painel usa o renderizador tipado (badges + listas dobráveis). Se nenhuma dessas chaves estiver presente, o painel cai pra renderização KV genérica (JSON formatado).
+
+Campos extras dentro de `summary` (qualquer chave fora do conjunto canônico) ainda aparecem como JSON no fim — não escondemos dados que o worker decidiu reportar.
+
+**Quando usar `partial_success: true`:** a automação processa N unidades independentes e o resultado **não é binário** — alguns deram certo, outros falharam, mas o job em si não foi um fracasso. Marcar `partial_success` mantém o status `completed` (a métrica de sucesso continua igual), mas avisa o operador que vale conferir o detalhamento. Se nenhuma unidade deu certo, prefira `status: "failed"` em vez de `partial_success`.
+
+Exemplo completo (worker que processa N empresas):
+
+```json
+{
+  "status": "completed",
+  "result": {
+    "partial_success": true,
+    "summary": {
+      "ok": ["EMPRESA_A", "EMPRESA_B", "EMPRESA_D"],
+      "failed": [
+        {
+          "empresa": "EMPRESA_C",
+          "error_class": "CREDENTIAL_INVALID",
+          "error_type": "InvalidCredentialError",
+          "message": "Senha incorreta no portal SEFAZ"
+        }
+      ],
+      "no_data": ["EMPRESA_E"],
+      "skipped": []
+    }
+  }
+}
+```
 
 ### 5.4 `GET /worker/jobs/:id/cancellation`
 

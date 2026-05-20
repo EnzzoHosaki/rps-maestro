@@ -14,6 +14,7 @@ import {
   jobErrorMessage,
 } from "@/lib/jobs";
 import { useAuth } from "@/lib/auth";
+import { JobResultSummary } from "@/components/job-result-summary";
 
 const LOG_COLOR: Record<string, string> = {
   ERROR: "text-red-400",
@@ -135,6 +136,14 @@ export function JobPanel({
             retry #{job.retryCount}
           </span>
         ) : null}
+        {job?.result?.partial_success === true && (
+          <span
+            className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+            title="Parte dos itens processou com sucesso; veja o resultado para detalhes."
+          >
+            parcial
+          </span>
+        )}
         <div className="ml-auto flex gap-2">
           {isOperatorPlus && status && isActiveStatus(status) && (
             <button
@@ -168,6 +177,8 @@ export function JobPanel({
         </details>
       )}
 
+      {job?.result && <JobResultSummary result={job.result} />}
+
       {streamError && (
         <div className="border-b border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700">
           Stream interrompido: {streamError}
@@ -183,7 +194,14 @@ export function JobPanel({
           </p>
         ) : (
           logs.map((l) => (
-            <div key={l.id} className="mb-1 flex gap-2">
+            <div
+              key={l.id}
+              className={`mb-1 flex gap-2 ${
+                l.actionable
+                  ? "border-l-2 border-amber-400 bg-amber-500/10 py-0.5 pl-2"
+                  : ""
+              }`}
+            >
               <span className="shrink-0 text-gray-600 dark:text-gray-400">
                 {format(new Date(l.timestamp), "HH:mm:ss")}
               </span>
@@ -194,6 +212,15 @@ export function JobPanel({
               >
                 {l.level.slice(0, 4)}
               </span>
+              {l.actionable && (
+                <span
+                  className="shrink-0 text-amber-400"
+                  title="Requer ação do operador"
+                  aria-label="Requer ação do operador"
+                >
+                  ⚠
+                </span>
+              )}
               <span
                 className={`whitespace-pre-wrap break-words ${
                   LOG_COLOR[l.level.toUpperCase()] ?? "text-gray-300"
