@@ -409,15 +409,21 @@ Suportado nativamente pelo Maestro — **você não precisa fazer nada no worker
 
 Tokens disponíveis (usar em qualquer campo de string nos parâmetros do schedule):
 
-| Token             | Resolve para                       |
-|-------------------|-------------------------------------|
-| `{{today}}`       | Hoje                                |
-| `{{yesterday}}`   | Ontem (= `{{today-1}}`)             |
-| `{{tomorrow}}`    | Amanhã (= `{{today+1}}`)            |
-| `{{today-N}}`     | N dias atrás (N inteiro)            |
-| `{{today+N}}`     | N dias à frente                     |
+| Token                       | Resolve para                                |
+|-----------------------------|----------------------------------------------|
+| `{{today}}`                 | Hoje                                         |
+| `{{yesterday}}`             | Ontem (= `{{today-1}}`)                      |
+| `{{tomorrow}}`              | Amanhã (= `{{today+1}}`)                     |
+| `{{today-N}}`               | N dias atrás (N inteiro)                     |
+| `{{today+N}}`               | N dias à frente                              |
+| `{{first_of_month}}`        | 1º dia do mês corrente                       |
+| `{{last_of_month}}`         | Último dia do mês corrente                   |
+| `{{first_of_last_month}}`   | 1º dia do mês anterior                       |
+| `{{last_of_last_month}}`    | Último dia do mês anterior                   |
 
-Combinar é OK: `"{{today-2}} a {{yesterday}}"` vira `"17/05/2026 a 18/05/2026"`. Expansão é recursiva (funciona dentro de arrays e objetos aninhados nos parâmetros).
+Combinar é OK: `"{{today-2}} a {{yesterday}}"` vira `"17/05/2026 a 18/05/2026"`. Expansão é recursiva (funciona dentro de arrays e objetos aninhados nos parâmetros). Tokens de mês **não aceitam offset** (`{{first_of_last_month-3}}` não é interpretado — fica literal).
+
+> Caso clássico: agendar "todo dia 1 às 6h" com `start_date: "{{first_of_last_month}}"` e `end_date: "{{last_of_last_month}}"` baixa o mês fechado anterior sem o worker precisar implementar lógica de calendário.
 
 **Na UI**, em campos `date` e `number` (que renderizam input nativo restritivo), clique no botão **fx** ao lado do campo para alternar pra texto livre e digitar o placeholder.
 
