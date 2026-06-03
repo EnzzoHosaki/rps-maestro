@@ -65,26 +65,18 @@ func (s *Scheduler) Reload(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	activeIDs := make(map[int]struct{}, len(schedules))
-	for _, sc := range schedules {
-		activeIDs[sc.ID] = struct{}{}
-	}
-
-	// Remove entradas que foram desabilitadas ou deletadas
+	// Remove TODAS as entradas registradas e re-registra do zero. Isso garante
+	// que edições na expressão cron de um agendamento existente passem a valer
+	// imediatamente (sem reiniciar o backend) e que o next_run_at seja sempre
+	// recalculado — incluindo agendamentos desabilitados/deletados, que
+	// simplesmente não voltam a ser registrados por não estarem em GetAllEnabled.
 	for id, entryID := range s.entries {
-		if _, ok := activeIDs[id]; !ok {
-			s.cron.Remove(entryID)
-			delete(s.entries, id)
-			log.Printf("[scheduler] agendamento %d removido", id)
-		}
+		s.cron.Remove(entryID)
+		delete(s.entries, id)
 	}
 
-	// Registra novos agendamentos
+	// Registra todos os agendamentos habilitados
 	for _, sc := range schedules {
-		if _, exists := s.entries[sc.ID]; exists {
-			continue
-		}
-
 		scheduleID := sc.ID
 		entryID, err := s.cron.AddFunc(sc.CronExpression, func() {
 			s.runSchedule(scheduleID)

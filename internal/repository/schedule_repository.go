@@ -84,17 +84,18 @@ func (r *PostgresScheduleRepository) UpdateNextRun(ctx context.Context, id int, 
 }
 
 func (r *PostgresScheduleRepository) Update(ctx context.Context, schedule *models.Schedule) error {
+	// next_run_at é propriedade exclusiva do scheduler (calculado no Reload),
+	// nunca escrito pela rota de update — senão um payload sem nextRunAt o zeraria.
 	sql := `UPDATE schedules
-	        SET automation_id = $1, cron_expression = $2, parameters = $3, 
-	            next_run_at = $4, is_enabled = $5, updated_at = NOW()
-	        WHERE id = $6
+	        SET automation_id = $1, cron_expression = $2, parameters = $3,
+	            is_enabled = $4, updated_at = NOW()
+	        WHERE id = $5
 	        RETURNING updated_at`
 
 	err := r.db.QueryRow(ctx, sql,
 		schedule.AutomationID,
 		schedule.CronExpression,
 		schedule.Parameters,
-		schedule.NextRunAt,
 		schedule.IsEnabled,
 		schedule.ID,
 	).Scan(&schedule.UpdatedAt)
