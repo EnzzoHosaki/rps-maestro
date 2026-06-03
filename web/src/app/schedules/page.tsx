@@ -6,6 +6,8 @@ import { schedulesApi, automationsApi, type Schedule, type Automation } from "@/
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
+import { CronBuilder } from "@/components/cron-builder";
+import { describeCron } from "@/lib/cron";
 import { useAuth } from "@/lib/auth";
 import { SkeletonRow } from "@/components/skeleton";
 
@@ -88,7 +90,13 @@ function ScheduleForm({
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Expressão Cron</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Quando executar</label>
+        <CronBuilder
+          value={form.cronExpression}
+          onChange={(next) => setForm((f) => ({ ...f, cronExpression: next }))}
+        />
+
+        <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Expressão Cron</label>
         <input
           required
           value={form.cronExpression}
@@ -108,6 +116,11 @@ function ScheduleForm({
             </button>
           ))}
         </div>
+        {form.cronExpression && (
+          <p className="mt-1.5 text-xs text-rps-olive-dark dark:text-rps-sage">
+            {describeCron(form.cronExpression)}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
@@ -226,7 +239,15 @@ export default function SchedulesPage() {
   });
 
   const toggle = useMutation({
-    mutationFn: (s: Schedule) => schedulesApi.update(s.id, { isEnabled: !s.isEnabled }),
+    // Envia o objeto completo: o handler de update faz replace total, então um
+    // payload parcial zeraria automationId/cronExpression.
+    mutationFn: (s: Schedule) =>
+      schedulesApi.update(s.id, {
+        automationId: s.automationId,
+        cronExpression: s.cronExpression,
+        isEnabled: !s.isEnabled,
+        parameters: s.parameters,
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["schedules"] }),
   });
 
@@ -264,7 +285,10 @@ export default function SchedulesPage() {
             {schedules?.map((s) => (
               <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                 <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{getAutoName(s.automationId)}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.cronExpression}</td>
+                <td className="px-4 py-3">
+                  <div className="font-mono text-xs text-gray-500">{s.cronExpression}</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500">{describeCron(s.cronExpression)}</div>
+                </td>
                 <td className="px-4 py-3 text-gray-500">
                   {s.nextRunAt
                     ? formatDistanceToNow(new Date(s.nextRunAt), { locale: ptBR, addSuffix: true })

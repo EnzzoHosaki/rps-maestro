@@ -9,7 +9,17 @@ import (
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
 	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron/v3"
 )
+
+// validateCron rejeita expressões cron inválidas antes de persistir, usando o
+// mesmo parser do scheduler (5 campos padrão). Sem isso, uma expressão inválida
+// seria salva e só falharia silenciosamente no Reload, deixando o agendamento
+// cadastrado mas nunca executado.
+func validateCron(expr string) error {
+	_, err := cron.ParseStandard(expr)
+	return err
+}
 
 // ScheduleReloader é implementado pelo scheduler para sincronizar agendamentos após mudanças via API.
 type ScheduleReloader interface {
@@ -36,12 +46,23 @@ func (h *ScheduleHandler) CreateSchedule(c *gin.Context) {
 		return
 	}
 
+	if err := validateCron(schedule.CronExpression); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Expressão cron inválida: " + err.Error()})
+		return
+	}
+
 	if err := h.scheduleRepo.Create(c.Request.Context(), &schedule); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao criar agendamento: " + err.Error()})
 		return
 	}
 
 	h.triggerReload(c.Request.Context())
+
+	// Re-busca após o reload para devolver o next_run_at recém-calculado pelo scheduler.
+	if fresh, err := h.scheduleRepo.GetByID(c.Request.Context(), schedule.ID); err == nil {
+		c.JSON(http.StatusCreated, fresh)
+		return
+	}
 	c.JSON(http.StatusCreated, schedule)
 }
 
@@ -86,6 +107,11 @@ func (h *ScheduleHandler) UpdateSchedule(c *gin.Context) {
 		return
 	}
 
+	if err := validateCron(schedule.CronExpression); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Expressão cron inválida: " + err.Error()})
+		return
+	}
+
 	schedule.ID = id
 	if err := h.scheduleRepo.Update(c.Request.Context(), &schedule); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar agendamento: " + err.Error()})
@@ -93,6 +119,12 @@ func (h *ScheduleHandler) UpdateSchedule(c *gin.Context) {
 	}
 
 	h.triggerReload(c.Request.Context())
+
+	// Re-busca após o reload para devolver o next_run_at recém-calculado pelo scheduler.
+	if fresh, err := h.scheduleRepo.GetByID(c.Request.Context(), id); err == nil {
+		c.JSON(http.StatusOK, fresh)
+		return
+	}
 	c.JSON(http.StatusOK, schedule)
 }
 
