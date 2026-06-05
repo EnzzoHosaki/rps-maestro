@@ -5,3 +5,6 @@ rps-maestro
 .env
 
 *.log
+
+# Workspace local do Claude Code (worktrees, planos, etc.)
+.claude/
