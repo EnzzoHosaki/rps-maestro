@@ -188,7 +188,7 @@ export function JobResultSummary({ result }: { result: JobResult }) {
         Resultado
       </summary>
 
-      <div className="mt-2 space-y-2">
+      <div className="mt-2 space-y-2 max-h-[45vh] overflow-y-auto pr-1">
         {hasError && (
           <div className="rounded border border-red-200 bg-red-50 p-2 dark:border-red-900/50 dark:bg-red-950/30">
             <div className="font-medium text-red-900 dark:text-red-200">Erro</div>
