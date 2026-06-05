@@ -70,7 +70,7 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
           </summary>
           <ul className="mt-1 ml-4 list-disc text-xs text-gray-700 dark:text-gray-300">
             {ok.map((name, i) => (
-              <li key={`${name}-${i}`} className="font-mono">
+              <li key={`${name}-${i}`} className="break-words font-mono">
                 {name}
               </li>
             ))}
@@ -92,7 +92,7 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
                 key={i}
                 className="rounded border border-red-100 bg-red-50 p-2 dark:border-red-900/40 dark:bg-red-950/20"
               >
-                <div className="font-mono font-medium text-red-900 dark:text-red-200">
+                <div className="break-words font-mono font-medium text-red-900 dark:text-red-200">
                   {f.empresa ?? "(sem identificação)"}
                 </div>
                 {f.error_class && (
@@ -106,10 +106,10 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
                   </div>
                 )}
                 {f.message && (
-                  <div className="mt-1 text-red-800 dark:text-red-300">{f.message}</div>
+                  <div className="mt-1 whitespace-pre-wrap break-words text-red-800 dark:text-red-300">{f.message}</div>
                 )}
                 {f.error_type && !f.message && (
-                  <div className="mt-1 font-mono text-red-700 dark:text-red-400">{f.error_type}</div>
+                  <div className="mt-1 break-words font-mono text-red-700 dark:text-red-400">{f.error_type}</div>
                 )}
               </li>
             ))}
@@ -127,7 +127,7 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
           </summary>
           <ul className="mt-1 ml-4 list-disc text-xs text-gray-700 dark:text-gray-300">
             {noData.map((name, i) => (
-              <li key={`${name}-${i}`} className="font-mono">
+              <li key={`${name}-${i}`} className="break-words font-mono">
                 {name}
               </li>
             ))}
@@ -145,7 +145,7 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
           </summary>
           <ul className="mt-1 ml-4 list-disc text-xs text-gray-700 dark:text-gray-300">
             {skipped.map((name, i) => (
-              <li key={`${name}-${i}`} className="font-mono">
+              <li key={`${name}-${i}`} className="break-words font-mono">
                 {name}
               </li>
             ))}
@@ -188,7 +188,7 @@ export function JobResultSummary({ result }: { result: JobResult }) {
         Resultado
       </summary>
 
-      <div className="mt-2 space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+      <div className="mt-2 space-y-2 max-h-[45vh] overflow-x-hidden overflow-y-auto pr-1">
         {hasError && (
           <div className="rounded border border-red-200 bg-red-50 p-2 dark:border-red-900/50 dark:bg-red-950/30">
             <div className="font-medium text-red-900 dark:text-red-200">Erro</div>
