@@ -36,6 +36,7 @@ const PAGE_TITLES: Array<{ match: (p: string) => boolean; title: string }> = [
   { match: (p) => p === "/", title: "Dashboard" },
   { match: (p) => p.startsWith("/automations"), title: "Automações" },
   { match: (p) => p.startsWith("/jobs"), title: "Jobs" },
+  { match: (p) => p.startsWith("/xml"), title: "Rastreador XML" },
   { match: (p) => p.startsWith("/schedules"), title: "Agendamentos" },
   { match: (p) => p.startsWith("/users"), title: "Usuários" },
   { match: (p) => p.startsWith("/me"), title: "Meu perfil" },
