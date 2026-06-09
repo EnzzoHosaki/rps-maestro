@@ -45,12 +45,18 @@ export interface Nota {
   status: NotaStatus;
   codigo_empresa?: number;
   codigo_filial?: number;
-  arrived_at?: string;
-  synced_at?: string;
-  imported_at?: string;
+  nome_empresa?: string;
+  cnpj_emitente?: string;
+  nome_emitente?: string;
+  cnpj_destinatario?: string;
+  nome_destinatario?: string;
   import_ignored: boolean;
   motivo_ignorado?: string;
   data_emissao?: string;
+  valor_total?: number;
+  arrived_at?: string;
+  synced_at?: string;
+  imported_at?: string;
   lat_arrival_sync_s?: number;
   lat_sync_import_s?: number;
 }
@@ -102,11 +108,18 @@ export interface EmpresaAgg {
   lost: number;
 }
 
+export type DateField = "emissao" | "arrived" | "synced" | "imported";
+
 export interface NotaListFilter {
   status?: NotaStatus;
   doc_type?: DocType;
   codigo_empresa?: number;
-  q?: string;
+  empresa?: string; // busca por nome
+  cnpj?: string; // emitente ou destinatário
+  q?: string; // chave
+  date_field?: DateField;
+  from?: string; // yyyy-mm-dd
+  to?: string;
   limit?: number;
   offset?: number;
 }

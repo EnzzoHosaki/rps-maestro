@@ -11,6 +11,7 @@ import {
   XML_DOC_TYPE_LABEL,
   type NotaStatus,
   type DocType,
+  type DateField,
 } from "@/lib/xml-api";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
 
@@ -75,10 +76,24 @@ function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
 
+function fmtBRL(v: number): string {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function fmtParty(nome?: string, doc?: string): string {
+  if (nome && doc) return `${nome} (${doc})`;
+  return nome || doc || "—";
+}
+
 export default function XmlPage() {
   const [statusFilter, setStatusFilter] = useState<NotaStatus | "all">("all");
   const [docFilter, setDocFilter] = useState<DocType | "all">("all");
   const [q, setQ] = useState("");
+  const [empresa, setEmpresa] = useState("");
+  const [cnpj, setCnpj] = useState("");
+  const [dateField, setDateField] = useState<DateField>("imported");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -89,13 +104,18 @@ export default function XmlPage() {
   });
 
   const list = useQuery({
-    queryKey: ["xml", "notas", { statusFilter, docFilter, q, offset }],
+    queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, dateField, from, to, offset }],
     queryFn: () =>
       notasApi
         .list({
           status: statusFilter === "all" ? undefined : statusFilter,
           doc_type: docFilter === "all" ? undefined : docFilter,
           q: q || undefined,
+          empresa: empresa || undefined,
+          cnpj: cnpj || undefined,
+          date_field: from || to ? dateField : undefined,
+          from: from || undefined,
+          to: to || undefined,
           limit: PAGE_SIZE,
           offset,
         })
@@ -172,6 +192,39 @@ export default function XmlPage() {
         </span>
       </div>
 
+      {/* Filtros: empresa, cnpj, data */}
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          value={empresa}
+          onChange={(e) => reset(setEmpresa)(e.target.value)}
+          placeholder="Empresa (nome)…"
+          className="w-48 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+        />
+        <input
+          value={cnpj}
+          onChange={(e) => reset(setCnpj)(e.target.value.trim())}
+          placeholder="CNPJ emit/dest…"
+          className="w-44 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+        />
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <select
+            value={dateField}
+            onChange={(e) => reset(setDateField)(e.target.value as DateField)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          >
+            <option value="emissao">Data emissão</option>
+            <option value="arrived">Data chegada</option>
+            <option value="synced">Data sincronização</option>
+            <option value="imported">Data importação</option>
+          </select>
+          <input type="date" value={from} onChange={(e) => reset(setFrom)(e.target.value)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none" />
+          <span>até</span>
+          <input type="date" value={to} onChange={(e) => reset(setTo)(e.target.value)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none" />
+        </div>
+      </div>
+
       {/* Tabela */}
       <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
         <table className="w-full text-sm">
@@ -180,8 +233,8 @@ export default function XmlPage() {
               <th className="px-4 py-3">Chave</th>
               <th className="px-4 py-3">Tipo</th>
               <th className="px-4 py-3">Empresa</th>
+              <th className="px-4 py-3">Emitente</th>
               <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Chegada</th>
               <th className="px-4 py-3">Importação</th>
             </tr>
           </thead>
@@ -196,15 +249,17 @@ export default function XmlPage() {
                   …{n.chave_acesso.slice(-12)}
                 </td>
                 <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</td>
-                <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                  {n.codigo_empresa ? `${n.codigo_empresa}-${n.codigo_filial ?? 1}` : "—"}
+                <td className="max-w-[220px] truncate px-4 py-3 text-gray-700 dark:text-gray-300" title={n.nome_empresa}>
+                  {n.nome_empresa || (n.codigo_empresa ? `#${n.codigo_empresa}-${n.codigo_filial ?? 1}` : "—")}
+                </td>
+                <td className="max-w-[220px] truncate px-4 py-3 text-gray-600 dark:text-gray-400" title={n.nome_emitente}>
+                  {n.nome_emitente || n.cnpj_emitente || "—"}
                 </td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${XML_STATUS_STYLE[n.status]}`}>
                     {XML_STATUS_LABEL[n.status]}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-xs text-gray-500">{fmtTs(n.arrived_at)}</td>
                 <td className="px-4 py-3 text-xs text-gray-500">{fmtTs(n.imported_at)}</td>
               </tr>
             ))}
@@ -285,8 +340,11 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
                   {XML_STATUS_LABEL[data.status]}
                 </span>
               </Field>
-              <Field label="Empresa" value={data.codigo_empresa ? `${data.codigo_empresa}-${data.codigo_filial ?? 1}` : "—"} />
+              <Field label="Empresa" value={data.nome_empresa || (data.codigo_empresa ? `#${data.codigo_empresa}-${data.codigo_filial ?? 1}` : "—")} />
               <Field label="Emissão" value={data.data_emissao ?? "—"} />
+              <Field label="Valor" value={data.valor_total != null ? fmtBRL(data.valor_total) : "—"} />
+              <Field label="Emitente" value={fmtParty(data.nome_emitente, data.cnpj_emitente)} />
+              <Field label="Destinatário" value={fmtParty(data.nome_destinatario, data.cnpj_destinatario)} />
               <Field label="Latência chegada→sync" value={fmtDur(data.lat_arrival_sync_s)} />
               <Field label="Latência sync→import" value={fmtDur(data.lat_sync_import_s)} />
             </div>
