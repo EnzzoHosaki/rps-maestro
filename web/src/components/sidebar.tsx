@@ -10,6 +10,7 @@ const links: NavLink[] = [
   { href: "/", label: "Dashboard", icon: "▦" },
   { href: "/automations", label: "Automações", icon: "⚡" },
   { href: "/jobs", label: "Jobs", icon: "⚙" },
+  { href: "/xml", label: "Rastreador XML", icon: "📄" },
   { href: "/schedules", label: "Agendamentos", icon: "⏱" },
   { href: "/users", label: "Usuários", icon: "◉", adminOnly: true },
 ];
