@@ -301,7 +301,7 @@ export default function DashboardPage() {
             </Link>
           </div>
           {recentFailures.length === 0 ? (
-            <p className="py-4 text-sm text-gray-500">Nenhuma falha recente. 🎉</p>
+            <p className="py-4 text-sm text-gray-500">Nenhuma falha recente.</p>
           ) : (
             <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {recentFailures.map((j) => (

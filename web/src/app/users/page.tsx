@@ -9,6 +9,7 @@ import {
   type UpdateUserPayload,
   type User,
 } from "@/lib/api";
+import { X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -49,9 +50,10 @@ function Modal({
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
             onClick={onClose}
-            className="text-xl leading-none text-gray-500 hover:text-gray-900 dark:text-gray-100"
+            aria-label="Fechar"
+            className="rounded text-gray-500 hover:text-gray-900 dark:text-gray-100"
           >
-            ×
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
         {children}
