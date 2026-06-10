@@ -13,6 +13,7 @@ import {
   type DocType,
   type DateField,
 } from "@/lib/xml-api";
+import { X } from "lucide-react";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
 
 const PAGE_SIZE = 50;
@@ -323,7 +324,13 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Nota fiscal</h2>
-          <button onClick={onClose} className="text-xl text-gray-500 hover:text-gray-700">×</button>
+          <button
+            onClick={onClose}
+            aria-label="Fechar"
+            className="rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
         </div>
 
         <p className="mb-4 break-all font-mono text-xs text-gray-500">{chave}</p>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ChevronDown, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useTheme, type ThemePref } from "@/lib/theme";
 
@@ -12,22 +13,23 @@ const THEME_LABEL: Record<ThemePref, string> = {
   system: "Tema: sistema",
 };
 
-const THEME_ICON: Record<ThemePref, string> = {
-  light: "☀",
-  dark: "☾",
-  system: "⌒",
+const THEME_ICON: Record<ThemePref, LucideIcon> = {
+  light: Sun,
+  dark: Moon,
+  system: Monitor,
 };
 
 function ThemeToggle() {
   const { pref, cycle } = useTheme();
+  const Icon = THEME_ICON[pref];
   return (
     <button
       onClick={cycle}
-      className="flex h-8 w-8 items-center justify-center rounded-md text-base text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+      className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
       title={`${THEME_LABEL[pref]} — clique pra trocar`}
       aria-label={THEME_LABEL[pref]}
     >
-      {THEME_ICON[pref]}
+      <Icon className="h-4 w-4" aria-hidden />
     </button>
   );
 }
@@ -86,7 +88,7 @@ export function Header() {
                   </p>
                 )}
               </div>
-              <span className="text-xs text-gray-400">▾</span>
+              <ChevronDown className="h-3.5 w-3.5 text-gray-400" aria-hidden />
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>

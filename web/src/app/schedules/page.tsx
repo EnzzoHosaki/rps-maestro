@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { schedulesApi, automationsApi, type Schedule, type Automation } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { X } from "lucide-react";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
 import { CronBuilder } from "@/components/cron-builder";
 import { describeCron } from "@/lib/cron";
@@ -34,8 +35,12 @@ function Modal({
       <div className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-gray-900 p-6 shadow-xl`}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-900 dark:text-gray-100 text-xl leading-none">
-            ×
+          <button
+            onClick={onClose}
+            aria-label="Fechar"
+            className="rounded text-gray-500 hover:text-gray-900 dark:text-gray-100"
+          >
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
         {children}
