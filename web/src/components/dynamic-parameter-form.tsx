@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import type { ParameterField, ParameterSchema } from "@/lib/api";
 
 type Values = Record<string, string | boolean>;
@@ -152,9 +153,10 @@ export function DynamicParameterForm({
             type="button"
             onClick={() => setDynamic(f.name, false)}
             title="Voltar pro input normal"
+            aria-label="Voltar pro input normal"
             className="shrink-0 rounded border border-gray-300 bg-white px-2 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
           >
-            ↺
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
           </button>
         </div>
       );

@@ -2,17 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  Activity,
+  Clock,
+  FileSearch,
+  LayoutDashboard,
+  Users,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
-type NavLink = { href: string; label: string; icon: string; adminOnly?: boolean };
+type NavLink = { href: string; label: string; icon: LucideIcon; adminOnly?: boolean };
 
 const links: NavLink[] = [
-  { href: "/", label: "Dashboard", icon: "▦" },
-  { href: "/automations", label: "Automações", icon: "⚡" },
-  { href: "/jobs", label: "Jobs", icon: "⚙" },
-  { href: "/xml", label: "Rastreador XML", icon: "📄" },
-  { href: "/schedules", label: "Agendamentos", icon: "⏱" },
-  { href: "/users", label: "Usuários", icon: "◉", adminOnly: true },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/automations", label: "Automações", icon: Zap },
+  { href: "/jobs", label: "Jobs", icon: Activity },
+  { href: "/xml", label: "Rastreador XML", icon: FileSearch },
+  { href: "/schedules", label: "Agendamentos", icon: Clock },
+  { href: "/users", label: "Usuários", icon: Users, adminOnly: true },
 ];
 
 export function Sidebar() {
@@ -43,7 +52,7 @@ export function Sidebar() {
                   : "text-gray-700 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-800"
               }`}
             >
-              <span className="text-base">{l.icon}</span>
+              <l.icon className="h-4 w-4 shrink-0" aria-hidden />
               {l.label}
             </Link>
           );

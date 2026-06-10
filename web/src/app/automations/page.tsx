@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { automationsApi, type Automation, type ParameterSchema } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { Check, X } from "lucide-react";
 import { ParameterSchemaEditor } from "@/components/parameter-schema-editor";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
 import { JobPanel } from "@/components/job-panel";
@@ -57,8 +58,12 @@ function Modal({
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-xl leading-none text-gray-500 hover:text-gray-900 dark:text-gray-100">
-            ×
+          <button
+            onClick={onClose}
+            aria-label="Fechar"
+            className="rounded text-gray-500 hover:text-gray-900 dark:text-gray-100"
+          >
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
         {children}
@@ -259,8 +264,9 @@ function ExecuteModal({
 
       {showCascadeBadge && source === "last" && (
         <div className="mb-3 flex items-center justify-between rounded border border-rps-sage bg-rps-sage-soft px-3 py-2 text-xs">
-          <span className="font-medium text-rps-olive-dark">
-            ✓ Carregado da sua última execução
+          <span className="inline-flex items-center gap-1 font-medium text-rps-olive-dark">
+            <Check className="h-3.5 w-3.5" aria-hidden />
+            Carregado da sua última execução
           </span>
           <button
             type="button"

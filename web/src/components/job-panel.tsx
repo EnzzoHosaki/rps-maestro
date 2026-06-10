@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { AlertTriangle, X } from "lucide-react";
 import { jobsApi, type Automation, type JobLog, type JobStatus } from "@/lib/api";
 import {
   STATUS_LABEL,
@@ -107,10 +108,10 @@ export function JobPanel({
         </div>
         <button
           onClick={onClose}
-          className="ml-3 shrink-0 text-xl leading-none text-gray-500 hover:text-gray-900 dark:text-gray-100"
+          className="ml-3 shrink-0 rounded text-gray-500 hover:text-gray-900 dark:text-gray-100"
           aria-label="Fechar"
         >
-          ×
+          <X className="h-5 w-5" aria-hidden />
         </button>
       </div>
 
@@ -218,7 +219,7 @@ export function JobPanel({
                   title="Requer ação do operador"
                   aria-label="Requer ação do operador"
                 >
-                  ⚠
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
                 </span>
               )}
               <span

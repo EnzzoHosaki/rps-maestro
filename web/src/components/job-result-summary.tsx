@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Ban, CheckCircle2, CircleDashed, XCircle } from "lucide-react";
 import type { JobResult, TypedResultSummary } from "@/lib/api";
 import { errorClassLabel, errorClassStyle } from "@/lib/jobs";
 
@@ -66,7 +67,10 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
       {ok.length > 0 && (
         <details open={openOk} onToggle={(e) => setOpenOk((e.target as HTMLDetailsElement).open)}>
           <summary className="cursor-pointer text-xs font-medium text-green-700 dark:text-green-400">
-            ✓ Sucessos ({ok.length})
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+              Sucessos ({ok.length})
+            </span>
           </summary>
           <ul className="mt-1 ml-4 list-disc text-xs text-gray-700 dark:text-gray-300">
             {ok.map((name, i) => (
@@ -84,7 +88,10 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
           onToggle={(e) => setOpenFailed((e.target as HTMLDetailsElement).open)}
         >
           <summary className="cursor-pointer text-xs font-medium text-red-700 dark:text-red-400">
-            ✗ Falhas ({failed.length})
+            <span className="inline-flex items-center gap-1">
+              <XCircle className="h-3.5 w-3.5" aria-hidden />
+              Falhas ({failed.length})
+            </span>
           </summary>
           <ul className="mt-1 ml-2 space-y-1 text-xs">
             {failed.map((f, i) => (
@@ -123,7 +130,10 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
           onToggle={(e) => setOpenNoData((e.target as HTMLDetailsElement).open)}
         >
           <summary className="cursor-pointer text-xs font-medium text-amber-700 dark:text-amber-400">
-            ◌ Sem dados ({noData.length})
+            <span className="inline-flex items-center gap-1">
+              <CircleDashed className="h-3.5 w-3.5" aria-hidden />
+              Sem dados ({noData.length})
+            </span>
           </summary>
           <ul className="mt-1 ml-4 list-disc text-xs text-gray-700 dark:text-gray-300">
             {noData.map((name, i) => (
@@ -141,7 +151,10 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
           onToggle={(e) => setOpenSkipped((e.target as HTMLDetailsElement).open)}
         >
           <summary className="cursor-pointer text-xs font-medium text-gray-600 dark:text-gray-400">
-            ⊘ Pulados ({skipped.length})
+            <span className="inline-flex items-center gap-1">
+              <Ban className="h-3.5 w-3.5" aria-hidden />
+              Pulados ({skipped.length})
+            </span>
           </summary>
           <ul className="mt-1 ml-4 list-disc text-xs text-gray-700 dark:text-gray-300">
             {skipped.map((name, i) => (
