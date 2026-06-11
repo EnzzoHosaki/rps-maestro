@@ -27,10 +27,10 @@ const PAGE_SIZE = 50;
 
 const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "all", label: "Todos" },
-  { value: "arrived", label: "A sincronizar" },
-  { value: "synced", label: "Sincronizado" },
-  { value: "pending_import", label: "Aguardando import." },
-  { value: "imported", label: "Importado" },
+  { value: "arrived", label: "A Sincronizar" },
+  { value: "synced", label: "Sincronizada" },
+  { value: "pending_import", label: "Aguardando Importação" },
+  { value: "imported", label: "Importada" },
   { value: "import_ignored", label: "Ignorada" },
   { value: "stuck", label: "Travada" },
   { value: "lost", label: "Sumida" },
@@ -44,12 +44,14 @@ function StatCard({
   hint,
   tone = "neutral",
   loading = false,
+  title,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   tone?: "neutral" | "success" | "warning" | "danger";
   loading?: boolean;
+  title?: string;
 }) {
   const accent =
     tone === "success"
@@ -60,7 +62,10 @@ function StatCard({
           ? "text-red-700"
           : "text-gray-900 dark:text-gray-100";
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm">
+    <div
+      title={title}
+      className={`rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm${title ? " cursor-help" : ""}`}
+    >
       <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
       {loading ? (
         <Skeleton className="mt-2 h-7 w-16" />
@@ -217,10 +222,10 @@ function XmlPageContent() {
 
       {/* Cards do pipeline (Travadas/Sumidas só aparecem quando > 0) */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="A sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={overview.isLoading} />
+        <StatCard label="A Sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={overview.isLoading} />
         <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={overview.isLoading} />
-        <StatCard label="Aguardando import." value={ov?.pending_import ?? "—"} loading={overview.isLoading} />
-        <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={overview.isLoading} />
+        <StatCard label="Aguardando Importação" value={ov?.pending_import ?? "—"} loading={overview.isLoading} />
+        <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={overview.isLoading} title="Contagem do dia. O filtro 'Importada' mostra todas." />
         <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={overview.isLoading} />
         {showStuck && (
           <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={overview.isLoading} />
