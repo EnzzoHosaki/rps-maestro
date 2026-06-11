@@ -13,7 +13,7 @@ import {
   type DocType,
   type DateField,
 } from "@/lib/xml-api";
-import { X } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
 
 const PAGE_SIZE = 50;
@@ -317,69 +317,53 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white dark:bg-gray-900 p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Nota fiscal</h2>
-          <button
-            onClick={onClose}
-            aria-label="Fechar"
-            className="rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-          >
-            <X className="h-5 w-5" aria-hidden />
-          </button>
-        </div>
+    <Modal title="Nota fiscal" onClose={onClose} wide>
+      <p className="mb-4 break-all font-mono text-xs text-gray-500">{chave}</p>
 
-        <p className="mb-4 break-all font-mono text-xs text-gray-500">{chave}</p>
+      {isLoading && <Skeleton className="h-32 w-full" />}
+      {isError && <p className="text-sm text-red-600">Falha ao carregar a nota.</p>}
 
-        {isLoading && <Skeleton className="h-32 w-full" />}
-        {isError && <p className="text-sm text-red-600">Falha ao carregar a nota.</p>}
+      {data && (
+        <>
+          <div className="mb-5 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+            <Field label="Tipo" value={XML_DOC_TYPE_LABEL[data.doc_type]} />
+            <Field label="Status">
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${XML_STATUS_STYLE[data.status]}`}>
+                {XML_STATUS_LABEL[data.status]}
+              </span>
+            </Field>
+            <Field label="Empresa" value={data.nome_empresa || (data.codigo_empresa ? `#${data.codigo_empresa}-${data.codigo_filial ?? 1}` : "—")} />
+            <Field label="Emissão" value={data.data_emissao ?? "—"} />
+            <Field label="Valor" value={data.valor_total != null ? fmtBRL(data.valor_total) : "—"} />
+            <Field label="Emitente" value={fmtParty(data.nome_emitente, data.cnpj_emitente)} />
+            <Field label="Destinatário" value={fmtParty(data.nome_destinatario, data.cnpj_destinatario)} />
+            <Field label="Latência chegada→sync" value={fmtDur(data.lat_arrival_sync_s)} />
+            <Field label="Latência sync→import" value={fmtDur(data.lat_sync_import_s)} />
+          </div>
 
-        {data && (
-          <>
-            <div className="mb-5 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-              <Field label="Tipo" value={XML_DOC_TYPE_LABEL[data.doc_type]} />
-              <Field label="Status">
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${XML_STATUS_STYLE[data.status]}`}>
-                  {XML_STATUS_LABEL[data.status]}
-                </span>
-              </Field>
-              <Field label="Empresa" value={data.nome_empresa || (data.codigo_empresa ? `#${data.codigo_empresa}-${data.codigo_filial ?? 1}` : "—")} />
-              <Field label="Emissão" value={data.data_emissao ?? "—"} />
-              <Field label="Valor" value={data.valor_total != null ? fmtBRL(data.valor_total) : "—"} />
-              <Field label="Emitente" value={fmtParty(data.nome_emitente, data.cnpj_emitente)} />
-              <Field label="Destinatário" value={fmtParty(data.nome_destinatario, data.cnpj_destinatario)} />
-              <Field label="Latência chegada→sync" value={fmtDur(data.lat_arrival_sync_s)} />
-              <Field label="Latência sync→import" value={fmtDur(data.lat_sync_import_s)} />
+          {data.motivo_ignorado && (
+            <div className="mb-5 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-3 text-xs text-gray-600 dark:text-gray-400">
+              <b>Motivo da importação ignorada:</b> {data.motivo_ignorado}
             </div>
+          )}
 
-            {data.motivo_ignorado && (
-              <div className="mb-5 rounded border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 p-3 text-xs text-gray-600 dark:text-gray-400">
-                <b>Motivo da importação ignorada:</b> {data.motivo_ignorado}
-              </div>
-            )}
-
-            <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Linha do tempo</h3>
-            <ol className="relative space-y-3 border-l border-gray-200 pl-5 dark:border-gray-700">
-              {data.spans.length === 0 && <li className="text-sm text-gray-500">Sem eventos.</li>}
-              {data.spans.map((s, i) => (
-                <li key={i} className="relative">
-                  <span className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-rps-olive-dark" />
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                    {STAGE_LABEL[s.stage] ?? s.stage} <span className="text-xs font-normal text-gray-500">· {s.event_type}</span>
-                  </p>
-                  <p className="text-xs text-gray-500">{fmtTs(s.observed_at)} · {s.source}</p>
-                  {s.file_path && <p className="break-all text-[11px] text-gray-400">{s.file_path}</p>}
-                </li>
-              ))}
-            </ol>
-          </>
-        )}
-      </div>
-    </div>
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Linha do tempo</h3>
+          <ol className="relative space-y-3 border-l border-gray-200 pl-5 dark:border-gray-700">
+            {data.spans.length === 0 && <li className="text-sm text-gray-500">Sem eventos.</li>}
+            {data.spans.map((s, i) => (
+              <li key={i} className="relative">
+                <span className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-rps-olive-dark" />
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                  {STAGE_LABEL[s.stage] ?? s.stage} <span className="text-xs font-normal text-gray-500">· {s.event_type}</span>
+                </p>
+                <p className="text-xs text-gray-500">{fmtTs(s.observed_at)} · {s.source}</p>
+                {s.file_path && <p className="break-all text-[11px] text-gray-400">{s.file_path}</p>}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </Modal>
   );
 }
 

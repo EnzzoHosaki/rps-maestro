@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import { automationsApi, type Automation, type ParameterSchema } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Check, X } from "lucide-react";
+import { Check } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { useConfirm } from "@/components/ui/confirm";
 import { ParameterSchemaEditor } from "@/components/parameter-schema-editor";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
 import { JobPanel } from "@/components/job-panel";
@@ -40,37 +42,6 @@ function errorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function Modal({
-  title,
-  onClose,
-  children,
-  wide,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  wide?: boolean;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div
-        className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-gray-900 p-6 shadow-xl`}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Fechar"
-            className="rounded text-gray-500 hover:text-gray-900 dark:text-gray-100"
-          >
-            <X className="h-5 w-5" aria-hidden />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
 
 function paramsToJsonField(p?: Record<string, unknown>): string {
   if (!p || Object.keys(p).length === 0) return "";
@@ -307,6 +278,7 @@ function ExecuteModal({
 }
 
 export default function AutomationsPage() {
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const { isAdmin, isOperatorPlus } = useAuth();
   const [creating, setCreating] = useState(false);
@@ -414,8 +386,16 @@ export default function AutomationsPage() {
                     )}
                     {isAdmin && (
                       <button
-                        onClick={() => {
-                          if (confirm("Remover esta automação?")) remove.mutate(a.id);
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: "Remover automação",
+                              message: "Remover esta automação? Agendamentos e histórico vinculados a ela podem ser afetados.",
+                              confirmLabel: "Remover",
+                              tone: "danger",
+                            })
+                          )
+                            remove.mutate(a.id);
                         }}
                         className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
                       >
