@@ -15,6 +15,11 @@ import {
 } from "@/lib/xml-api";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
+import { EmptyRow } from "@/components/ui/empty-state";
+import { ErrorRow } from "@/components/ui/error-state";
 
 const PAGE_SIZE = 50;
 
@@ -142,12 +147,12 @@ export default function XmlPage() {
     <div className="space-y-5">
       {/* Cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <StatCard label="Em trânsito" value={ov?.in_transit ?? "—"} tone={ov?.in_transit ? "warning" : "neutral"} loading={!ov} />
-        <StatCard label="Chegaram" value={ov?.arrived ?? "—"} loading={!ov} />
-        <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={!ov} />
-        <StatCard label="Import. ignoradas" value={ov?.import_ignored ?? "—"} loading={!ov} />
-        <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone={ov?.stuck ? "danger" : "neutral"} loading={!ov} />
-        <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone={ov?.lost ? "danger" : "neutral"} loading={!ov} />
+        <StatCard label="Em trânsito" value={ov?.in_transit ?? "—"} tone={ov?.in_transit ? "warning" : "neutral"} loading={overview.isLoading} />
+        <StatCard label="Chegaram" value={ov?.arrived ?? "—"} loading={overview.isLoading} />
+        <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={overview.isLoading} />
+        <StatCard label="Import. ignoradas" value={ov?.import_ignored ?? "—"} loading={overview.isLoading} />
+        <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone={ov?.stuck ? "danger" : "neutral"} loading={overview.isLoading} />
+        <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone={ov?.lost ? "danger" : "neutral"} loading={overview.isLoading} />
       </div>
       {ov && (
         <div className="flex flex-wrap gap-4 text-xs text-gray-500">
@@ -227,74 +232,69 @@ export default function XmlPage() {
       </div>
 
       {/* Tabela */}
-      <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-              <th className="px-4 py-3">Chave</th>
-              <th className="px-4 py-3">Tipo</th>
-              <th className="px-4 py-3">Empresa</th>
-              <th className="px-4 py-3">Emitente</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Importação</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {items.map((n) => (
-              <tr
-                key={n.chave_acesso}
-                className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
-                onClick={() => setSelected(n.chave_acesso)}
-              >
-                <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400" title={n.chave_acesso}>
-                  …{n.chave_acesso.slice(-12)}
-                </td>
-                <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</td>
-                <td className="max-w-[220px] truncate px-4 py-3 text-gray-700 dark:text-gray-300" title={n.nome_empresa}>
-                  {n.nome_empresa || (n.codigo_empresa ? `#${n.codigo_empresa}-${n.codigo_filial ?? 1}` : "—")}
-                </td>
-                <td className="max-w-[220px] truncate px-4 py-3 text-gray-600 dark:text-gray-400" title={n.nome_emitente}>
-                  {n.nome_emitente || n.cnpj_emitente || "—"}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${XML_STATUS_STYLE[n.status]}`}>
-                    {XML_STATUS_LABEL[n.status]}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs text-gray-500">{fmtTs(n.imported_at)}</td>
-              </tr>
-            ))}
-            {!list.isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-600 dark:text-gray-400">
-                  Nenhuma nota encontrada com os filtros atuais.
-                </td>
-              </tr>
-            )}
-            {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
-          </tbody>
-        </table>
-      </div>
+      <Table>
+        <THead>
+          <Th>Chave</Th>
+          <Th>Tipo</Th>
+          <Th>Empresa</Th>
+          <Th>Emitente</Th>
+          <Th>Status</Th>
+          <Th>Importação</Th>
+        </THead>
+        <TBody>
+          {items.map((n) => (
+            <Tr
+              key={n.chave_acesso}
+              className="cursor-pointer"
+              onClick={() => setSelected(n.chave_acesso)}
+            >
+              <Td className="font-mono text-xs text-gray-600 dark:text-gray-400" title={n.chave_acesso}>
+                …{n.chave_acesso.slice(-12)}
+              </Td>
+              <Td className="text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</Td>
+              <Td className="max-w-[220px] truncate text-gray-700 dark:text-gray-300" title={n.nome_empresa}>
+                {n.nome_empresa || (n.codigo_empresa ? `#${n.codigo_empresa}-${n.codigo_filial ?? 1}` : "—")}
+              </Td>
+              <Td className="max-w-[220px] truncate text-gray-600 dark:text-gray-400" title={n.nome_emitente}>
+                {n.nome_emitente || n.cnpj_emitente || "—"}
+              </Td>
+              <Td>
+                <Badge className={XML_STATUS_STYLE[n.status]}>{XML_STATUS_LABEL[n.status]}</Badge>
+              </Td>
+              <Td className="text-xs text-gray-500">{fmtTs(n.imported_at)}</Td>
+            </Tr>
+          ))}
+          {list.isError && items.length === 0 && (
+            <ErrorRow colSpan={6} onRetry={() => list.refetch()} />
+          )}
+          {!list.isLoading && !list.isError && items.length === 0 && (
+            <EmptyRow colSpan={6}>Nenhuma nota encontrada com os filtros atuais.</EmptyRow>
+          )}
+          {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
+        </TBody>
+      </Table>
 
       {total > 0 && (
         <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
           <span>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} de {total}</span>
           <div className="flex gap-2">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               disabled={offset === 0}
-              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
             >
               Anterior
-            </button>
+            </Button>
             <span className="px-2 text-xs text-gray-500">{page} / {totalPages}</span>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setOffset(offset + PAGE_SIZE)}
               disabled={offset + PAGE_SIZE >= total}
-              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
             >
               Próximo
-            </button>
+            </Button>
           </div>
         </div>
       )}

@@ -5,6 +5,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { authApi } from "@/lib/api";
 import { Skeleton } from "@/components/skeleton";
+import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
@@ -27,7 +29,7 @@ export default function MePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { data: me, isLoading } = useQuery({
+  const { data: me, isLoading, isError, refetch } = useQuery({
     queryKey: ["auth", "me"],
     queryFn: () => authApi.me().then((r) => r.data),
   });
@@ -65,7 +67,9 @@ export default function MePage() {
     <div className="max-w-xl space-y-6">
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">Dados</h2>
-        {isLoading || !me ? (
+        {isError ? (
+          <ErrorState onRetry={() => refetch()} />
+        ) : isLoading || !me ? (
           <dl className="space-y-3 text-sm">
             {[1, 2, 3].map((i) => (
               <div key={i} className="flex justify-between">
@@ -138,13 +142,9 @@ export default function MePage() {
           />
         </div>
         {formError && <p className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
-        <button
-          type="submit"
-          disabled={change.isPending}
-          className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
-        >
+        <Button type="submit" disabled={change.isPending} className="w-full">
           {change.isPending ? "Salvando…" : "Trocar senha"}
-        </button>
+        </Button>
       </form>
     </div>
   );

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Ban, CheckCircle2, CircleDashed, XCircle } from "lucide-react";
 import type { JobResult, TypedResultSummary } from "@/lib/api";
 import { errorClassLabel, errorClassStyle } from "@/lib/jobs";
+import { Badge } from "@/components/ui/badge";
 
 const TYPED_KEYS = ["ok", "failed", "no_data", "skipped"] as const;
 
@@ -32,9 +33,9 @@ function CountBadge({ label, n, tone }: { label: string; n: number; tone: "ok" |
     muted: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400",
   }[tone];
   return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${toneCls}`}>
+    <Badge className={toneCls}>
       {label}: {n}
-    </span>
+    </Badge>
   );
 }
 
@@ -103,14 +104,14 @@ function TypedSummary({ summary }: { summary: TypedResultSummary }) {
                   {f.empresa ?? "(sem identificação)"}
                 </div>
                 {f.error_class && (
-                  <div
-                    className={`mt-0.5 inline-block rounded px-1.5 py-0.5 font-mono text-[10px] ${errorClassStyle(
-                      f.error_class
-                    )}`}
+                  <Badge
+                    shape="square"
+                    size="xs"
+                    className={`mt-0.5 font-mono ${errorClassStyle(f.error_class)}`}
                     title={f.error_class}
                   >
                     {errorClassLabel(f.error_class)}
-                  </div>
+                  </Badge>
                 )}
                 {f.message && (
                   <div className="mt-1 whitespace-pre-wrap break-words text-red-800 dark:text-red-300">{f.message}</div>
@@ -209,14 +210,14 @@ export function JobResultSummary({ result }: { result: JobResult }) {
               {result.error}
             </div>
             {result.error_class && (
-              <div
-                className={`mt-1 inline-block rounded px-1.5 py-0.5 font-mono text-[10px] ${errorClassStyle(
-                  result.error_class
-                )}`}
+              <Badge
+                shape="square"
+                size="xs"
+                className={`mt-1 font-mono ${errorClassStyle(result.error_class)}`}
                 title={result.error_class}
               >
                 {errorClassLabel(result.error_class)}
-              </div>
+              </Badge>
             )}
             {result.error_type && (
               <div className="mt-1 ml-1 inline-block font-mono text-[10px] text-red-700 dark:text-red-400">

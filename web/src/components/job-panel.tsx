@@ -16,6 +16,8 @@ import {
 } from "@/lib/jobs";
 import { useAuth } from "@/lib/auth";
 import { JobResultSummary } from "@/components/job-result-summary";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 const LOG_COLOR: Record<string, string> = {
   ERROR: "text-red-400",
@@ -106,23 +108,19 @@ export function JobPanel({
           </p>
           <p className="truncate font-mono text-xs text-gray-500">{jobId}</p>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onClose}
-          className="ml-3 shrink-0 rounded text-gray-500 hover:text-gray-900 dark:text-gray-100"
+          className="ml-3 shrink-0"
           aria-label="Fechar"
         >
           <X className="h-5 w-5" aria-hidden />
-        </button>
+        </Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 dark:border-gray-800 px-4 py-3 text-sm">
-        {status && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[status]}`}
-          >
-            {STATUS_LABEL[status]}
-          </span>
-        )}
+        {status && <Badge className={STATUS_STYLE[status]}>{STATUS_LABEL[status]}</Badge>}
         {job?.startedAt && (
           <span className="text-xs text-gray-500">
             Iniciado{" "}
@@ -133,36 +131,38 @@ export function JobPanel({
           </span>
         )}
         {job?.retryCount && job.retryCount > 0 ? (
-          <span className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400">
+          <Badge shape="square" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
             retry #{job.retryCount}
-          </span>
+          </Badge>
         ) : null}
         {job?.result?.partial_success === true && (
-          <span
-            className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+          <Badge
+            className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
             title="Parte dos itens processou com sucesso; veja o resultado para detalhes."
           >
             parcial
-          </span>
+          </Badge>
         )}
         <div className="ml-auto flex gap-2">
           {isOperatorPlus && status && isActiveStatus(status) && (
-            <button
+            <Button
+              variant="danger"
+              size="sm"
               onClick={() => cancelMutation.mutate()}
               disabled={cancelMutation.isPending}
-              className="rounded bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
             >
               {cancelMutation.isPending ? "Cancelando…" : "Cancelar"}
-            </button>
+            </Button>
           )}
           {isOperatorPlus && status && isRetryableStatus(status) && (
-            <button
+            <Button
+              variant="soft"
+              size="sm"
               onClick={() => retryMutation.mutate()}
               disabled={retryMutation.isPending}
-              className="rounded bg-rps-sage-soft px-3 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage disabled:opacity-50"
             >
               {retryMutation.isPending ? "Enviando…" : "Reexecutar"}
-            </button>
+            </Button>
           )}
         </div>
       </div>

@@ -15,6 +15,9 @@ import {
 import { STATUS_LABEL, STATUS_STYLE } from "@/lib/jobs";
 import { JobPanel } from "@/components/job-panel";
 import { Skeleton } from "@/components/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 function StatCard({
   label,
@@ -52,7 +55,7 @@ function StatCard({
 
 function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
   if (buckets.length === 0) {
-    return <p className="py-8 text-center text-sm text-gray-500">Sem dados.</p>;
+    return <EmptyState>Sem dados.</EmptyState>;
   }
 
   const max = Math.max(1, ...buckets.map((b) => b.total));
@@ -71,13 +74,13 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
         x2={W - P.right}
         y1={P.top + chartH}
         y2={P.top + chartH}
-        stroke="#e5e7eb"
+        className="stroke-gray-200 dark:stroke-gray-700"
         strokeWidth={1}
       />
-      <text x={P.left - 4} y={P.top + 8} fontSize="10" fill="#6b7280" textAnchor="end">
+      <text x={P.left - 4} y={P.top + 8} fontSize="10" className="fill-gray-500" textAnchor="end">
         {max}
       </text>
-      <text x={P.left - 4} y={P.top + chartH} fontSize="10" fill="#6b7280" textAnchor="end">
+      <text x={P.left - 4} y={P.top + chartH} fontSize="10" className="fill-gray-500" textAnchor="end">
         0
       </text>
 
@@ -94,21 +97,21 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
               y={baseY - succH - failH - otherH}
               width={barW}
               height={Math.max(0, otherH)}
-              fill="#d1d5db"
+              className="fill-gray-300 dark:fill-gray-600"
             />
             <rect
               x={x}
               y={baseY - succH - failH}
               width={barW}
               height={Math.max(0, succH)}
-              fill="#a7baa6"
+              className="fill-rps-sage"
             />
             <rect
               x={x}
               y={baseY - failH}
               width={barW}
               height={Math.max(0, failH)}
-              fill="#fca5a5"
+              className="fill-red-300"
             />
             <title>
               {`${format(new Date(b.hour), "HH:00")} — ${b.total} jobs (${b.succeeded} ok, ${b.failed} falhas)`}
@@ -126,7 +129,7 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
             x={P.left + i * slotW + slotW / 2}
             y={H - 6}
             fontSize="10"
-            fill="#6b7280"
+            className="fill-gray-500"
             textAnchor="middle"
           >
             {format(new Date(b.hour), "HH'h'")}
@@ -140,10 +143,10 @@ function ChartLegend() {
   return (
     <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400">
       <span className="flex items-center gap-1">
-        <span className="inline-block h-2 w-2 rounded-sm bg-[#a7baa6]" /> sucesso
+        <span className="inline-block h-2 w-2 rounded-sm bg-rps-sage" /> sucesso
       </span>
       <span className="flex items-center gap-1">
-        <span className="inline-block h-2 w-2 rounded-sm bg-[#fca5a5]" /> falha
+        <span className="inline-block h-2 w-2 rounded-sm bg-red-300" /> falha
       </span>
       <span className="flex items-center gap-1">
         <span className="inline-block h-2 w-2 rounded-sm bg-gray-300" /> outros
@@ -155,13 +158,13 @@ function ChartLegend() {
 export default function DashboardPage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
-  const { data: metrics } = useQuery({
+  const { data: metrics, isLoading: metricsLoading } = useQuery({
     queryKey: ["metrics"],
     queryFn: () => metricsApi.get().then((r) => r.data),
     refetchInterval: 5000,
   });
 
-  const { data: chart = [] } = useQuery({
+  const { data: chart = [], isError: chartError, refetch: refetchChart } = useQuery({
     queryKey: ["metrics", "jobsPerHour"],
     queryFn: () => metricsApi.jobsPerHour().then((r) => r.data),
     refetchInterval: 60_000,
@@ -175,13 +178,13 @@ export default function DashboardPage() {
 
   // "Rodando agora" combina pending+running. Backend não aceita lista de
   // status, então duas queries paralelas e mescla — barato pelo limit baixo.
-  const { data: pendingItems = [] } = useQuery({
+  const { data: pendingItems = [], isError: pendingError, refetch: refetchPending } = useQuery({
     queryKey: ["jobs", "list", "active", "pending"],
     queryFn: () =>
       jobsApi.list({ status: "pending", limit: 20 }).then((r) => r.data.items),
     refetchInterval: 5000,
   });
-  const { data: runningItems = [] } = useQuery({
+  const { data: runningItems = [], isError: runningError, refetch: refetchRunning } = useQuery({
     queryKey: ["jobs", "list", "active", "running"],
     queryFn: () =>
       jobsApi.list({ status: "running", limit: 20 }).then((r) => r.data.items),
@@ -196,12 +199,14 @@ export default function DashboardPage() {
     [runningItems, pendingItems]
   );
 
-  const { data: recentFailures = [] } = useQuery({
+  const { data: recentFailures = [], isError: failuresError, refetch: refetchFailures } = useQuery({
     queryKey: ["jobs", "list", "failed", "recent"],
     queryFn: () =>
       jobsApi.list({ status: "failed", limit: 8 }).then((r) => r.data.items),
     refetchInterval: 30_000,
   });
+
+  const activeError = pendingError || runningError;
 
   const automationName = (id: number) =>
     automations.find((a) => a.id === id)?.name ?? `#${id}`;
@@ -210,8 +215,6 @@ export default function DashboardPage() {
     metrics && metrics.totalLast24h > 0
       ? `${Math.round(metrics.successRate24h * 100)}%`
       : "—";
-
-  const metricsLoading = !metrics;
 
   return (
     <div className="space-y-6">
@@ -246,8 +249,14 @@ export default function DashboardPage() {
             {metrics ? `${metrics.totalLast24h} no período` : "—"}
           </span>
         </div>
-        <JobsPerHourChart buckets={chart} />
-        <ChartLegend />
+        {chartError && chart.length === 0 ? (
+          <ErrorState onRetry={() => refetchChart()} />
+        ) : (
+          <>
+            <JobsPerHourChart buckets={chart} />
+            <ChartLegend />
+          </>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -260,8 +269,10 @@ export default function DashboardPage() {
                 : `${activeJobs.length} ativo${activeJobs.length === 1 ? "" : "s"}`}
             </span>
           </div>
-          {activeJobs.length === 0 ? (
-            <p className="py-4 text-sm text-gray-500">Sem jobs em andamento no momento.</p>
+          {activeError && activeJobs.length === 0 ? (
+            <ErrorState onRetry={() => { refetchPending(); refetchRunning(); }} />
+          ) : activeJobs.length === 0 ? (
+            <EmptyState className="py-4">Sem jobs em andamento no momento.</EmptyState>
           ) : (
             <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {activeJobs.map((j) => (
@@ -270,11 +281,7 @@ export default function DashboardPage() {
                   className="flex cursor-pointer items-center gap-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                   onClick={() => setSelectedJobId(j.id)}
                 >
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[j.status]}`}
-                  >
-                    {STATUS_LABEL[j.status]}
-                  </span>
+                  <Badge className={STATUS_STYLE[j.status]}>{STATUS_LABEL[j.status]}</Badge>
                   <span className="flex-1 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                     {automationName(j.automationId)}
                   </span>
@@ -300,8 +307,10 @@ export default function DashboardPage() {
               ver tudo
             </Link>
           </div>
-          {recentFailures.length === 0 ? (
-            <p className="py-4 text-sm text-gray-500">Nenhuma falha recente.</p>
+          {failuresError && recentFailures.length === 0 ? (
+            <ErrorState onRetry={() => refetchFailures()} />
+          ) : recentFailures.length === 0 ? (
+            <EmptyState className="py-4">Nenhuma falha recente.</EmptyState>
           ) : (
             <ul className="divide-y divide-gray-100 dark:divide-gray-800">
               {recentFailures.map((j) => (
@@ -310,9 +319,9 @@ export default function DashboardPage() {
                   className="flex cursor-pointer items-center gap-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                   onClick={() => setSelectedJobId(j.id)}
                 >
-                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                  <Badge className="bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300">
                     Falhou
-                  </span>
+                  </Badge>
                   <span className="flex-1 truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                     {automationName(j.automationId)}
                   </span>
