@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { AlertTriangle, X } from "lucide-react";
 import {
   notasApi,
   xmlMetricsApi,
@@ -92,16 +94,59 @@ function fmtParty(nome?: string, doc?: string): string {
 }
 
 export default function XmlPage() {
-  const [statusFilter, setStatusFilter] = useState<NotaStatus | "all">("all");
-  const [docFilter, setDocFilter] = useState<DocType | "all">("all");
-  const [q, setQ] = useState("");
-  const [empresa, setEmpresa] = useState("");
-  const [cnpj, setCnpj] = useState("");
-  const [dateField, setDateField] = useState<DateField>("imported");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [offset, setOffset] = useState(0);
+  // useSearchParams precisa de fronteira de Suspense no app router (senão o
+  // prerender estático quebra). O conteúdo real fica no XmlPageContent.
+  return (
+    <Suspense fallback={<div className="text-sm text-gray-500">Carregando…</div>}>
+      <XmlPageContent />
+    </Suspense>
+  );
+}
+
+function XmlPageContent() {
+  const sp = useSearchParams();
+  // Estado inicial vem da URL (deep-link/drill-down); depois espelhamos de
+  // volta pra URL via replaceState a cada mudança de filtro.
+  const [statusFilter, setStatusFilter] = useState<NotaStatus | "all">(
+    () => (sp.get("status") as NotaStatus) || "all"
+  );
+  const [docFilter, setDocFilter] = useState<DocType | "all">(
+    () => (sp.get("doc_type") as DocType) || "all"
+  );
+  const [q, setQ] = useState(() => sp.get("q") ?? "");
+  const [empresa, setEmpresa] = useState(() => sp.get("empresa") ?? "");
+  const [cnpj, setCnpj] = useState(() => sp.get("cnpj") ?? "");
+  const [codigoEmpresa, setCodigoEmpresa] = useState<number | null>(() => {
+    const v = sp.get("codigo_empresa");
+    return v ? Number(v) : null;
+  });
+  const [dateField, setDateField] = useState<DateField>(
+    () => (sp.get("date_field") as DateField) || "imported"
+  );
+  const [from, setFrom] = useState(() => sp.get("from") ?? "");
+  const [to, setTo] = useState(() => sp.get("to") ?? "");
+  const [offset, setOffset] = useState(() => Number(sp.get("offset")) || 0);
   const [selected, setSelected] = useState<string | null>(null);
+
+  // Espelha os filtros na URL (sem navegar/refetch): URL compartilhável e
+  // base pro drill-down por empresa do Bloco C1.
+  useEffect(() => {
+    const p = new URLSearchParams();
+    if (statusFilter !== "all") p.set("status", statusFilter);
+    if (docFilter !== "all") p.set("doc_type", docFilter);
+    if (q) p.set("q", q);
+    if (empresa) p.set("empresa", empresa);
+    if (cnpj) p.set("cnpj", cnpj);
+    if (codigoEmpresa != null) p.set("codigo_empresa", String(codigoEmpresa));
+    if (from || to) {
+      p.set("date_field", dateField);
+      if (from) p.set("from", from);
+      if (to) p.set("to", to);
+    }
+    if (offset) p.set("offset", String(offset));
+    const qs = p.toString();
+    window.history.replaceState(null, "", qs ? `/xml?${qs}` : "/xml");
+  }, [statusFilter, docFilter, q, empresa, cnpj, codigoEmpresa, dateField, from, to, offset]);
 
   const overview = useQuery({
     queryKey: ["xml", "overview"],
@@ -110,7 +155,7 @@ export default function XmlPage() {
   });
 
   const list = useQuery({
-    queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, dateField, from, to, offset }],
+    queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, codigoEmpresa, dateField, from, to, offset }],
     queryFn: () =>
       notasApi
         .list({
@@ -119,6 +164,7 @@ export default function XmlPage() {
           q: q || undefined,
           empresa: empresa || undefined,
           cnpj: cnpj || undefined,
+          codigo_empresa: codigoEmpresa ?? undefined,
           date_field: from || to ? dateField : undefined,
           from: from || undefined,
           to: to || undefined,
@@ -136,6 +182,12 @@ export default function XmlPage() {
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // "Pendente" = mesma definição do tracker (arrived+synced+pending_import+stuck;
+  // stuck conta, lost não, terminais fora). Mantém cards e filtro alinhados.
+  const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import + ov.stuck : 0;
+  const showStuck = overview.isLoading || (ov?.stuck ?? 0) > 0;
+  const showLost = overview.isLoading || (ov?.lost ?? 0) > 0;
+
   function reset<T>(setter: (v: T) => void) {
     return (v: T) => {
       setter(v);
@@ -145,19 +197,51 @@ export default function XmlPage() {
 
   return (
     <div className="space-y-5">
-      {/* Cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <StatCard label="Em trânsito" value={ov?.in_transit ?? "—"} tone={ov?.in_transit ? "warning" : "neutral"} loading={overview.isLoading} />
-        <StatCard label="Chegaram" value={ov?.arrived ?? "—"} loading={overview.isLoading} />
+      {/* Banner: tracker indisponível/instável */}
+      {(overview.isError || list.isError) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+          <span>Rastreador XML indisponível ou instável — os dados podem estar desatualizados.</span>
+          <button
+            onClick={() => {
+              overview.refetch();
+              list.refetch();
+            }}
+            className="ml-auto rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      )}
+
+      {/* Cards do pipeline (Travadas/Sumidas só aparecem quando > 0) */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <StatCard label="A sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={overview.isLoading} />
+        <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={overview.isLoading} />
+        <StatCard label="Aguardando import." value={ov?.pending_import ?? "—"} loading={overview.isLoading} />
         <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={overview.isLoading} />
-        <StatCard label="Import. ignoradas" value={ov?.import_ignored ?? "—"} loading={overview.isLoading} />
-        <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone={ov?.stuck ? "danger" : "neutral"} loading={overview.isLoading} />
-        <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone={ov?.lost ? "danger" : "neutral"} loading={overview.isLoading} />
+        <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={overview.isLoading} />
+        {showStuck && (
+          <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={overview.isLoading} />
+        )}
+        {showLost && (
+          <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone="danger" loading={overview.isLoading} />
+        )}
       </div>
       {ov && (
-        <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-          <span>Latência chegada→sync: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}</span>
-          <span>Latência sync→import: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+          <span>
+            <b className="text-gray-700 dark:text-gray-300">{pendentes}</b> pendentes
+            <span className="text-gray-400"> (chegou + sincronizado + aguardando + travada)</span>
+            {" · "}
+            {ov.in_transit} em trânsito
+          </span>
+          <span title="Calculadas só sobre notas rastreadas em tempo real; exclui backfill histórico.">
+            Latência chegada→sync: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
+          </span>
+          <span title="Calculadas só sobre notas rastreadas em tempo real; exclui backfill histórico.">
+            Latência sync→import: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
+          </span>
         </div>
       )}
 
@@ -231,6 +315,23 @@ export default function XmlPage() {
         </div>
       </div>
 
+      {/* Filtro ativo de empresa (vindo de drill-down / URL) */}
+      {codigoEmpresa != null && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-gray-500">Filtrando por empresa:</span>
+          <Badge shape="square" className="inline-flex items-center gap-1 bg-rps-sage-soft text-rps-olive-dark">
+            #{codigoEmpresa}
+            <button
+              onClick={() => reset(setCodigoEmpresa)(null)}
+              aria-label="Remover filtro de empresa"
+              className="rounded hover:text-rps-olive-darker"
+            >
+              <X className="h-3 w-3" aria-hidden />
+            </button>
+          </Badge>
+        </div>
+      )}
+
       {/* Tabela */}
       <Table>
         <THead>
@@ -253,7 +354,20 @@ export default function XmlPage() {
               </Td>
               <Td className="text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</Td>
               <Td className="max-w-[220px] truncate text-gray-700 dark:text-gray-300" title={n.nome_empresa}>
-                {n.nome_empresa || (n.codigo_empresa ? `#${n.codigo_empresa}-${n.codigo_filial ?? 1}` : "—")}
+                {n.codigo_empresa ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      reset(setCodigoEmpresa)(n.codigo_empresa!);
+                    }}
+                    className="truncate text-left hover:text-rps-olive-dark hover:underline"
+                    title="Filtrar por esta empresa"
+                  >
+                    {n.nome_empresa || `#${n.codigo_empresa}-${n.codigo_filial ?? 1}`}
+                  </button>
+                ) : (
+                  n.nome_empresa || "—"
+                )}
               </Td>
               <Td className="max-w-[220px] truncate text-gray-600 dark:text-gray-400" title={n.nome_emitente}>
                 {n.nome_emitente || n.cnpj_emitente || "—"}
