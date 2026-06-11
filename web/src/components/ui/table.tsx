@@ -13,7 +13,12 @@ export function Table({ children, className }: { children: React.ReactNode; clas
         className
       )}
     >
-      <table className="w-full text-sm">{children}</table>
+      {/* Wrapper interno rola na horizontal em telas estreitas; o externo
+          mantém o clip dos cantos arredondados. min-w-[640px] força o scroll
+          em vez de espremer as colunas no mobile. */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">{children}</table>
+      </div>
     </div>
   );
 }
