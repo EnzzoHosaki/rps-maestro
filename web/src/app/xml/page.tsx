@@ -8,12 +8,14 @@ import { AlertTriangle, X } from "lucide-react";
 import {
   notasApi,
   xmlMetricsApi,
+  empresasApi,
   XML_STATUS_LABEL,
   XML_STATUS_STYLE,
   XML_DOC_TYPE_LABEL,
   type NotaStatus,
   type DocType,
   type DateField,
+  type EmpresaAgg,
 } from "@/lib/xml-api";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
@@ -113,6 +115,9 @@ function XmlPageContent() {
   const [docFilter, setDocFilter] = useState<DocType | "all">(
     () => (sp.get("doc_type") as DocType) || "all"
   );
+  const [view, setView] = useState<"notas" | "empresas">(
+    () => (sp.get("view") === "empresas" ? "empresas" : "notas")
+  );
   const [q, setQ] = useState(() => sp.get("q") ?? "");
   const [empresa, setEmpresa] = useState(() => sp.get("empresa") ?? "");
   const [cnpj, setCnpj] = useState(() => sp.get("cnpj") ?? "");
@@ -120,6 +125,11 @@ function XmlPageContent() {
     const v = sp.get("codigo_empresa");
     return v ? Number(v) : null;
   });
+  const [codigoFilial, setCodigoFilial] = useState<number | null>(() => {
+    const v = sp.get("codigo_filial");
+    return v ? Number(v) : null;
+  });
+  const [semEmpresa, setSemEmpresa] = useState(() => sp.get("sem_empresa") === "true");
   const [dateField, setDateField] = useState<DateField>(
     () => (sp.get("date_field") as DateField) || "imported"
   );
@@ -132,12 +142,15 @@ function XmlPageContent() {
   // base pro drill-down por empresa do Bloco C1.
   useEffect(() => {
     const p = new URLSearchParams();
+    if (view === "empresas") p.set("view", "empresas");
     if (statusFilter !== "all") p.set("status", statusFilter);
     if (docFilter !== "all") p.set("doc_type", docFilter);
     if (q) p.set("q", q);
     if (empresa) p.set("empresa", empresa);
     if (cnpj) p.set("cnpj", cnpj);
+    if (semEmpresa) p.set("sem_empresa", "true");
     if (codigoEmpresa != null) p.set("codigo_empresa", String(codigoEmpresa));
+    if (codigoFilial != null) p.set("codigo_filial", String(codigoFilial));
     if (from || to) {
       p.set("date_field", dateField);
       if (from) p.set("from", from);
@@ -146,7 +159,7 @@ function XmlPageContent() {
     if (offset) p.set("offset", String(offset));
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `/xml?${qs}` : "/xml");
-  }, [statusFilter, docFilter, q, empresa, cnpj, codigoEmpresa, dateField, from, to, offset]);
+  }, [view, statusFilter, docFilter, q, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset]);
 
   const overview = useQuery({
     queryKey: ["xml", "overview"],
@@ -155,7 +168,7 @@ function XmlPageContent() {
   });
 
   const list = useQuery({
-    queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, codigoEmpresa, dateField, from, to, offset }],
+    queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset }],
     queryFn: () =>
       notasApi
         .list({
@@ -164,7 +177,9 @@ function XmlPageContent() {
           q: q || undefined,
           empresa: empresa || undefined,
           cnpj: cnpj || undefined,
+          sem_empresa: semEmpresa || undefined,
           codigo_empresa: codigoEmpresa ?? undefined,
+          codigo_filial: codigoFilial ?? undefined,
           date_field: from || to ? dateField : undefined,
           from: from || undefined,
           to: to || undefined,
@@ -174,6 +189,7 @@ function XmlPageContent() {
         .then((r) => r.data),
     refetchInterval: 15_000,
     placeholderData: (prev) => prev,
+    enabled: view === "notas",
   });
 
   const ov = overview.data;
@@ -194,6 +210,37 @@ function XmlPageContent() {
       setOffset(0);
     };
   }
+
+  // Limpa o filtro de empresa (código, filial e o bucket "sem empresa").
+  function clearEmpresaFilter() {
+    setCodigoEmpresa(null);
+    setCodigoFilial(null);
+    setSemEmpresa(false);
+    setOffset(0);
+  }
+
+  // Drill-down da visão por empresa → abre a aba Notas filtrada por aquela
+  // (empresa, filial), ou pelo bucket "sem empresa".
+  function drillToEmpresa(row: EmpresaAgg) {
+    setStatusFilter("all");
+    setOffset(0);
+    if (row.codigo_empresa == null) {
+      setSemEmpresa(true);
+      setCodigoEmpresa(null);
+      setCodigoFilial(null);
+    } else {
+      setSemEmpresa(false);
+      setCodigoEmpresa(row.codigo_empresa);
+      setCodigoFilial(row.codigo_filial ?? null);
+    }
+    setView("notas");
+  }
+
+  const empresaFilterLabel = semEmpresa
+    ? "Sem empresa"
+    : codigoEmpresa != null
+      ? `#${codigoEmpresa}${codigoFilial != null ? `-${codigoFilial}` : ""}`
+      : null;
 
   return (
     <div className="space-y-5">
@@ -245,6 +292,27 @@ function XmlPageContent() {
         </div>
       )}
 
+      {/* Toggle de visão: Notas (lista) × Empresas (agregado) */}
+      <div className="flex gap-1.5">
+        {(["notas", "empresas"] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              view === v
+                ? "bg-rps-olive-dark text-white"
+                : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+            }`}
+          >
+            {v === "notas" ? "Notas" : "Empresas"}
+          </button>
+        ))}
+      </div>
+
+      {view === "empresas" ? (
+        <EmpresasView onDrill={drillToEmpresa} />
+      ) : (
+        <>
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap gap-1.5">
@@ -316,13 +384,13 @@ function XmlPageContent() {
       </div>
 
       {/* Filtro ativo de empresa (vindo de drill-down / URL) */}
-      {codigoEmpresa != null && (
+      {empresaFilterLabel != null && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-gray-500">Filtrando por empresa:</span>
           <Badge shape="square" className="inline-flex items-center gap-1 bg-rps-sage-soft text-rps-olive-dark">
-            #{codigoEmpresa}
+            {empresaFilterLabel}
             <button
-              onClick={() => reset(setCodigoEmpresa)(null)}
+              onClick={clearEmpresaFilter}
               aria-label="Remover filtro de empresa"
               className="rounded hover:text-rps-olive-darker"
             >
@@ -358,6 +426,8 @@ function XmlPageContent() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      setSemEmpresa(false);
+                      setCodigoFilial(null);
                       reset(setCodigoEmpresa)(n.codigo_empresa!);
                     }}
                     className="truncate text-left hover:text-rps-olive-dark hover:underline"
@@ -412,9 +482,85 @@ function XmlPageContent() {
           </div>
         </div>
       )}
+        </>
+      )}
 
       {selected && <NotaDetailModal chave={selected} onClose={() => setSelected(null)} />}
     </div>
+  );
+}
+
+// Visão por empresa: uma linha por (empresa, filial) + a linha "Sem empresa",
+// ordenada por pendentes desc (sem-empresa fixada por último). Drill-down
+// reusa os filtros de URL da aba Notas.
+function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
+  const q = useQuery({
+    queryKey: ["xml", "empresas"],
+    queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+
+  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import + e.stuck;
+  const rows = [...(q.data?.items ?? [])].sort((a, b) => {
+    const aNo = a.codigo_empresa == null;
+    const bNo = b.codigo_empresa == null;
+    if (aNo !== bNo) return aNo ? 1 : -1; // "Sem empresa" sempre por último
+    return pend(b) - pend(a);
+  });
+
+  const numCols = 8;
+  const cell = (n: number, tone?: "danger" | "warn") =>
+    n === 0 ? (
+      <span className="text-gray-300 dark:text-gray-600">0</span>
+    ) : (
+      <span className={tone === "danger" ? "font-medium text-red-600 dark:text-red-400" : tone === "warn" ? "text-amber-700 dark:text-amber-400" : ""}>{n}</span>
+    );
+
+  return (
+    <Table>
+      <THead>
+        <Th>Empresa</Th>
+        <Th className="text-right" title="Chegou + sincronizado + aguardando + travada">Pendentes</Th>
+        <Th className="text-right">A sinc.</Th>
+        <Th className="text-right">Sincr.</Th>
+        <Th className="text-right">Aguard.</Th>
+        <Th className="text-right">Travadas</Th>
+        <Th className="text-right">Sumidas</Th>
+        <Th className="text-right">Importadas</Th>
+      </THead>
+      <TBody>
+        {rows.map((e) => {
+          const isNoEmpresa = e.codigo_empresa == null;
+          return (
+            <Tr
+              key={isNoEmpresa ? "sem-empresa" : `${e.codigo_empresa}-${e.codigo_filial ?? "x"}`}
+              className="cursor-pointer"
+              onClick={() => onDrill(e)}
+            >
+              <Td className="max-w-[280px] truncate text-gray-700 dark:text-gray-300" title={e.nome_empresa}>
+                {isNoEmpresa ? (
+                  <span className="italic text-gray-500">Sem empresa</span>
+                ) : (
+                  e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`
+                )}
+              </Td>
+              <Td className="text-right font-semibold text-gray-900 dark:text-gray-100">{pend(e)}</Td>
+              <Td className="text-right">{cell(e.arrived, "warn")}</Td>
+              <Td className="text-right">{cell(e.synced)}</Td>
+              <Td className="text-right">{cell(e.pending_import)}</Td>
+              <Td className="text-right">{cell(e.stuck, "danger")}</Td>
+              <Td className="text-right">{cell(e.lost, "danger")}</Td>
+              <Td className="text-right text-gray-500">{e.imported}</Td>
+            </Tr>
+          );
+        })}
+        {q.isError && rows.length === 0 && <ErrorRow colSpan={numCols} onRetry={() => q.refetch()} />}
+        {!q.isLoading && !q.isError && rows.length === 0 && (
+          <EmptyRow colSpan={numCols}>Nenhuma empresa com notas rastreadas.</EmptyRow>
+        )}
+        {q.isLoading && Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={numCols} />)}
+      </TBody>
+    </Table>
   );
 }
 

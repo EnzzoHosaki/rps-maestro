@@ -97,8 +97,11 @@ export interface Overview {
 }
 
 export interface EmpresaAgg {
+  // Ausentes (omitempty) na linha "Sem empresa" — detectar com `codigo_empresa == null`.
   codigo_empresa?: number;
   codigo_filial?: number;
+  nome_empresa?: string;
+  in_transit: number;
   arrived: number;
   synced: number;
   imported: number;
@@ -114,6 +117,8 @@ export interface NotaListFilter {
   status?: NotaStatus;
   doc_type?: DocType;
   codigo_empresa?: number;
+  codigo_filial?: number;
+  sem_empresa?: boolean; // notas com codigo_empresa IS NULL
   empresa?: string; // busca por nome
   cnpj?: string; // emitente ou destinatário
   q?: string; // chave
@@ -137,10 +142,15 @@ export const xmlMetricsApi = {
 };
 
 export const empresasApi = {
-  list: (pendentes = false) =>
-    xmlApi.get<{ items: EmpresaAgg[]; total: number }>("/empresas", {
-      params: pendentes ? { pendentes: "true" } : {},
-    }),
+  // limit=0 devolve TODAS as linhas (empresas/filiais + a linha "Sem empresa"),
+  // pra ordenar por pendentes no cliente. `pendentes:true` filtra a contagem
+  // (e exclui a linha "Sem empresa"), então não passamos isso na visão geral.
+  list: (opts: { pendentes?: boolean; limit?: number } = {}) => {
+    const params: Record<string, string | number> = {};
+    if (opts.pendentes) params.pendentes = "true";
+    if (opts.limit != null) params.limit = opts.limit;
+    return xmlApi.get<{ items: EmpresaAgg[]; total: number }>("/empresas", { params });
+  },
 };
 
 function cleanParams(f: NotaListFilter): Record<string, string | number> {
