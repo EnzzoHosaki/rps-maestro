@@ -154,7 +154,7 @@ function cleanParams(f: NotaListFilter): Record<string, string | number> {
 // ── Labels / estilos de status (pt-BR) ───────────────────────────────────────
 
 export const XML_STATUS_LABEL: Record<NotaStatus, string> = {
-  arrived: "Chegou",
+  arrived: "A sincronizar",
   synced: "Sincronizado",
   imported: "Importado",
   import_ignored: "Import. ignorada",

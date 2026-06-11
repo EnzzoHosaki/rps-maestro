@@ -27,7 +27,7 @@ const PAGE_SIZE = 50;
 
 const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "all", label: "Todos" },
-  { value: "arrived", label: "Chegou" },
+  { value: "arrived", label: "A sincronizar" },
   { value: "synced", label: "Sincronizado" },
   { value: "pending_import", label: "Aguardando import." },
   { value: "imported", label: "Importado" },
@@ -425,6 +425,23 @@ const STAGE_LABEL: Record<string, string> = {
   import: "Importação",
 };
 
+// Rótulos legíveis de event_type na timeline. `seen_pending` NÃO é importação —
+// é o Athenas ter enxergado a nota (ainda falta importar); rotular como estágio
+// "Aguardando importação" evita a leitura errada de "já importada".
+const EVENT_LABEL: Record<string, string> = {
+  seen_pending: "visto no Athenas",
+};
+
+function spanLabels(s: { stage: string; event_type: string }): { stage: string; event: string } {
+  if (s.event_type === "seen_pending") {
+    return { stage: "Aguardando importação", event: EVENT_LABEL.seen_pending };
+  }
+  return {
+    stage: STAGE_LABEL[s.stage] ?? s.stage,
+    event: EVENT_LABEL[s.event_type] ?? s.event_type,
+  };
+}
+
 function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => void }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["xml", "nota", chave],
@@ -465,16 +482,19 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
           <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Linha do tempo</h3>
           <ol className="relative space-y-3 border-l border-gray-200 pl-5 dark:border-gray-700">
             {data.spans.length === 0 && <li className="text-sm text-gray-500">Sem eventos.</li>}
-            {data.spans.map((s, i) => (
-              <li key={i} className="relative">
-                <span className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-rps-olive-dark" />
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                  {STAGE_LABEL[s.stage] ?? s.stage} <span className="text-xs font-normal text-gray-500">· {s.event_type}</span>
-                </p>
-                <p className="text-xs text-gray-500">{fmtTs(s.observed_at)} · {s.source}</p>
-                {s.file_path && <p className="break-all text-[11px] text-gray-400">{s.file_path}</p>}
-              </li>
-            ))}
+            {data.spans.map((s, i) => {
+              const l = spanLabels(s);
+              return (
+                <li key={i} className="relative">
+                  <span className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-rps-olive-dark" />
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                    {l.stage} <span className="text-xs font-normal text-gray-500">· {l.event}</span>
+                  </p>
+                  <p className="text-xs text-gray-500">{fmtTs(s.observed_at)} · {s.source}</p>
+                  {s.file_path && <p className="break-all text-[11px] text-gray-400">{s.file_path}</p>}
+                </li>
+              );
+            })}
           </ol>
         </>
       )}
