@@ -15,6 +15,11 @@ import { useAuth } from "@/lib/auth";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { SkeletonRow } from "@/components/skeleton";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
+import { EmptyRow } from "@/components/ui/empty-state";
+import { ErrorRow } from "@/components/ui/error-state";
 
 const ROLE_OPTIONS: Array<{ value: "admin" | "operator" | "viewer"; label: string }> = [
   { value: "admin", label: "Admin" },
@@ -109,13 +114,9 @@ function UserForm({
           </p>
         </div>
       )}
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
-      >
+      <Button type="submit" disabled={loading} className="w-full">
         {loading ? "Salvando…" : "Salvar"}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -155,13 +156,9 @@ function ResetPasswordForm({
           className="w-full rounded border border-gray-300 dark:border-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-rps-olive-dark focus:outline-none"
         />
       </div>
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
-      >
+      <Button type="submit" disabled={loading} className="w-full">
         {loading ? "Salvando…" : "Resetar senha"}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -175,7 +172,7 @@ export default function UsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [resetting, setResetting] = useState<User | null>(null);
 
-  const { data: users, isLoading } = useQuery({
+  const { data: users, isLoading, isError, refetch } = useQuery({
     queryKey: ["users", { includeInactive }],
     queryFn: () => usersApi.list(includeInactive).then((r) => r.data),
     enabled: isAdmin,
@@ -250,113 +247,93 @@ export default function UsersPage() {
           />
           Mostrar inativos
         </label>
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
-        >
-          + Novo usuário
-        </button>
+        <Button onClick={() => setCreating(true)}>+ Novo usuário</Button>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-              <th className="px-4 py-3">Nome</th>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Criado</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {isLoading &&
-              Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
-            {users?.map((u) => {
-              const isSelf = userId === u.id;
-              return (
-                <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
-                    {u.name}
-                    {isSelf && (
-                      <span className="ml-2 rounded bg-rps-sage-soft px-1.5 py-0.5 text-xs font-medium text-rps-olive-dark">
-                        você
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{u.email}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{ROLE_LABEL[u.role] ?? u.role}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                        u.isActive
-                          ? "bg-green-100 text-green-700"
-                          : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
-                      }`}
-                    >
-                      {u.isActive ? "Ativo" : "Inativo"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {formatDistanceToNow(new Date(u.createdAt), { locale: ptBR, addSuffix: true })}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => setEditing(u)}
-                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => setResetting(u)}
-                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                      >
-                        Resetar senha
-                      </button>
-                      {u.isActive ? (
-                        !isSelf && (
-                          <button
-                            onClick={async () => {
-                              if (
-                                await confirm({
-                                  title: "Desativar usuário",
-                                  message: `Desativar ${u.email}? A conta perde o acesso, mas pode ser reativada depois.`,
-                                  confirmLabel: "Desativar",
-                                  tone: "danger",
-                                })
-                              )
-                                deactivate.mutate(u.id);
-                            }}
-                            className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
-                          >
-                            Desativar
-                          </button>
-                        )
-                      ) : (
-                        <button
-                          onClick={() => reactivate.mutate(u.id)}
-                          className="rounded bg-rps-sage-soft px-2 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage"
+      <Table>
+        <THead>
+          <Th>Nome</Th>
+          <Th>Email</Th>
+          <Th>Role</Th>
+          <Th>Status</Th>
+          <Th>Criado</Th>
+          <Th></Th>
+        </THead>
+        <TBody>
+          {isLoading &&
+            Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
+          {isError && <ErrorRow colSpan={6} onRetry={() => refetch()} />}
+          {users?.map((u) => {
+            const isSelf = userId === u.id;
+            return (
+              <Tr key={u.id}>
+                <Td className="font-medium text-gray-900 dark:text-gray-100">
+                  {u.name}
+                  {isSelf && (
+                    <Badge shape="square" className="ml-2 bg-rps-sage-soft text-rps-olive-dark">
+                      você
+                    </Badge>
+                  )}
+                </Td>
+                <Td className="text-gray-700 dark:text-gray-300">{u.email}</Td>
+                <Td className="text-gray-700 dark:text-gray-300">{ROLE_LABEL[u.role] ?? u.role}</Td>
+                <Td>
+                  <Badge
+                    className={
+                      u.isActive
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                    }
+                  >
+                    {u.isActive ? "Ativo" : "Inativo"}
+                  </Badge>
+                </Td>
+                <Td className="text-gray-500">
+                  {formatDistanceToNow(new Date(u.createdAt), { locale: ptBR, addSuffix: true })}
+                </Td>
+                <Td>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => setEditing(u)}>
+                      Editar
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => setResetting(u)}>
+                      Resetar senha
+                    </Button>
+                    {u.isActive ? (
+                      !isSelf && (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={async () => {
+                            if (
+                              await confirm({
+                                title: "Desativar usuário",
+                                message: `Desativar ${u.email}? A conta perde o acesso, mas pode ser reativada depois.`,
+                                confirmLabel: "Desativar",
+                                tone: "danger",
+                              })
+                            )
+                              deactivate.mutate(u.id);
+                          }}
                         >
-                          Reativar
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {users?.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
-                  Nenhum usuário cadastrado.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                          Desativar
+                        </Button>
+                      )
+                    ) : (
+                      <Button variant="soft" size="sm" onClick={() => reactivate.mutate(u.id)}>
+                        Reativar
+                      </Button>
+                    )}
+                  </div>
+                </Td>
+              </Tr>
+            );
+          })}
+          {!isLoading && !isError && users?.length === 0 && (
+            <EmptyRow colSpan={6}>Nenhum usuário cadastrado.</EmptyRow>
+          )}
+        </TBody>
+      </Table>
 
       {creating && (
         <Modal title="Novo usuário" onClose={() => setCreating(false)}>

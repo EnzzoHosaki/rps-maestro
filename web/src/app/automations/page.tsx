@@ -14,6 +14,10 @@ import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
 import { JobPanel } from "@/components/job-panel";
 import { useAuth } from "@/lib/auth";
 import { SkeletonRow } from "@/components/skeleton";
+import { Button } from "@/components/ui/button";
+import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
+import { EmptyRow } from "@/components/ui/empty-state";
+import { ErrorRow } from "@/components/ui/error-state";
 
 type FormData = {
   name: string;
@@ -155,13 +159,9 @@ function AutomationForm({
         </p>
       </div>
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
-      >
+      <Button type="submit" disabled={loading} className="w-full">
         {loading ? "Salvando…" : "Salvar"}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -286,7 +286,7 @@ export default function AutomationsPage() {
   const [executing, setExecuting] = useState<Automation | null>(null);
   const [viewingJobId, setViewingJobId] = useState<string | null>(null);
 
-  const { data: automations, isLoading } = useQuery({
+  const { data: automations, isLoading, isError, refetch } = useQuery({
     queryKey: ["automations"],
     queryFn: () => automationsApi.list().then((r) => r.data),
   });
@@ -335,87 +335,72 @@ export default function AutomationsPage() {
     <div className="space-y-4">
       {isAdmin && (
         <div className="flex justify-end">
-          <button
-            onClick={() => setCreating(true)}
-            className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
-          >
-            + Nova automação
-          </button>
+          <Button onClick={() => setCreating(true)}>+ Nova automação</Button>
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-              <th className="px-4 py-3">Nome</th>
-              <th className="px-4 py-3">Script</th>
-              <th className="px-4 py-3">Fila</th>
-              <th className="px-4 py-3">Criada</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {isLoading &&
-              Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
-            {automations?.map((a) => (
-              <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{a.name}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-500">{a.scriptPath}</td>
-                <td className="px-4 py-3 text-gray-500">{a.queueName}</td>
-                <td className="px-4 py-3 text-gray-500">
-                  {formatDistanceToNow(new Date(a.createdAt), { locale: ptBR, addSuffix: true })}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex justify-end gap-2">
-                    {isOperatorPlus && (
-                      <button
-                        onClick={() => setExecuting(a)}
-                        className="rounded bg-rps-sage-soft px-2 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage"
-                      >
-                        Executar
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button
-                        onClick={() => setEditing(a)}
-                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                      >
-                        Editar
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button
-                        onClick={async () => {
-                          if (
-                            await confirm({
-                              title: "Remover automação",
-                              message: "Remover esta automação? Agendamentos e histórico vinculados a ela podem ser afetados.",
-                              confirmLabel: "Remover",
-                              tone: "danger",
-                            })
-                          )
-                            remove.mutate(a.id);
-                        }}
-                        className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
-                      >
-                        Remover
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {automations?.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-600 dark:text-gray-400">
-                  Nenhuma automação cadastrada.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Table>
+        <THead>
+          <Th>Nome</Th>
+          <Th>Script</Th>
+          <Th>Fila</Th>
+          <Th>Criada</Th>
+          <Th></Th>
+        </THead>
+        <TBody>
+          {isLoading &&
+            Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
+          {isError && (
+            <ErrorRow colSpan={5} onRetry={() => refetch()} />
+          )}
+          {automations?.map((a) => (
+            <Tr key={a.id}>
+              <Td className="font-medium text-gray-900 dark:text-gray-100">{a.name}</Td>
+              <Td className="font-mono text-xs text-gray-500">{a.scriptPath}</Td>
+              <Td className="text-gray-500">{a.queueName}</Td>
+              <Td className="text-gray-500">
+                {formatDistanceToNow(new Date(a.createdAt), { locale: ptBR, addSuffix: true })}
+              </Td>
+              <Td>
+                <div className="flex justify-end gap-2">
+                  {isOperatorPlus && (
+                    <Button variant="soft" size="sm" onClick={() => setExecuting(a)}>
+                      Executar
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button variant="secondary" size="sm" onClick={() => setEditing(a)}>
+                      Editar
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: "Remover automação",
+                            message: "Remover esta automação? Agendamentos e histórico vinculados a ela podem ser afetados.",
+                            confirmLabel: "Remover",
+                            tone: "danger",
+                          })
+                        )
+                          remove.mutate(a.id);
+                      }}
+                    >
+                      Remover
+                    </Button>
+                  )}
+                </div>
+              </Td>
+            </Tr>
+          ))}
+          {!isLoading && !isError && automations?.length === 0 && (
+            <EmptyRow colSpan={5}>Nenhuma automação cadastrada.</EmptyRow>
+          )}
+        </TBody>
+      </Table>
 
       {creating && (
         <Modal title="Nova automação" onClose={() => setCreating(false)} wide>

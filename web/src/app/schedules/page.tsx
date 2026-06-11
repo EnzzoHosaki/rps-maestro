@@ -12,6 +12,10 @@ import { CronBuilder } from "@/components/cron-builder";
 import { describeCron } from "@/lib/cron";
 import { useAuth } from "@/lib/auth";
 import { SkeletonRow } from "@/components/skeleton";
+import { Button } from "@/components/ui/button";
+import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
+import { EmptyRow } from "@/components/ui/empty-state";
+import { ErrorRow } from "@/components/ui/error-state";
 
 type FormData = {
   automationId: number;
@@ -157,14 +161,13 @@ function ScheduleForm({
       )}
 
       {(form.automationId === 0 || schema.length === 0) && (
-        <button
-          type="button"
+        <Button
           onClick={() => onSubmit(form)}
           disabled={loading || form.automationId === 0 || !form.cronExpression}
-          className="w-full rounded bg-rps-olive-dark py-2 text-sm font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50"
+          className="w-full"
         >
           {loading ? "Salvando…" : "Salvar agendamento"}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -177,7 +180,7 @@ export default function SchedulesPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
 
-  const { data: schedules, isLoading } = useQuery({
+  const { data: schedules, isLoading, isError, refetch } = useQuery({
     queryKey: ["schedules"],
     queryFn: () => schedulesApi.list().then((r) => r.data),
   });
@@ -236,105 +239,91 @@ export default function SchedulesPage() {
     <div className="space-y-4">
       {isAdmin && (
         <div className="flex justify-end">
-          <button
-            onClick={() => setCreating(true)}
-            className="rounded bg-rps-olive-dark px-4 py-2 text-sm font-medium text-white hover:bg-rps-olive-darker"
-          >
-            + Novo agendamento
-          </button>
+          <Button onClick={() => setCreating(true)}>+ Novo agendamento</Button>
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              <th className="px-4 py-3">Automação</th>
-              <th className="px-4 py-3">Cron</th>
-              <th className="px-4 py-3">Próxima execução</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {isLoading &&
-              Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
-            {schedules?.map((s) => (
-              <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{getAutoName(s.automationId)}</td>
-                <td className="px-4 py-3">
-                  <div className="font-mono text-xs text-gray-500">{s.cronExpression}</div>
-                  <div className="text-xs text-gray-400 dark:text-gray-500">{describeCron(s.cronExpression)}</div>
-                </td>
-                <td className="px-4 py-3 text-gray-500">
-                  {s.nextRunAt
-                    ? formatDistanceToNow(new Date(s.nextRunAt), { locale: ptBR, addSuffix: true })
-                    : "—"}
-                </td>
-                <td className="px-4 py-3">
-                  {isAdmin ? (
-                    <button
-                      onClick={() => toggle.mutate(s)}
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        s.isEnabled
-                          ? "bg-green-100 text-green-700 hover:bg-green-200"
-                          : "bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
-                      }`}
+      <Table>
+        <THead>
+          <Th>Automação</Th>
+          <Th>Cron</Th>
+          <Th>Próxima execução</Th>
+          <Th>Status</Th>
+          <Th></Th>
+        </THead>
+        <TBody>
+          {isLoading &&
+            Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
+          {isError && <ErrorRow colSpan={5} onRetry={() => refetch()} />}
+          {schedules?.map((s) => (
+            <Tr key={s.id}>
+              <Td className="font-medium text-gray-900 dark:text-gray-100">{getAutoName(s.automationId)}</Td>
+              <Td>
+                <div className="font-mono text-xs text-gray-500">{s.cronExpression}</div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">{describeCron(s.cronExpression)}</div>
+              </Td>
+              <Td className="text-gray-500">
+                {s.nextRunAt
+                  ? formatDistanceToNow(new Date(s.nextRunAt), { locale: ptBR, addSuffix: true })
+                  : "—"}
+              </Td>
+              <Td>
+                {isAdmin ? (
+                  <button
+                    onClick={() => toggle.mutate(s)}
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      s.isEnabled
+                        ? "bg-green-100 text-green-700 hover:bg-green-200"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    {s.isEnabled ? "Ativo" : "Inativo"}
+                  </button>
+                ) : (
+                  <span
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                      s.isEnabled
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-500"
+                    }`}
+                  >
+                    {s.isEnabled ? "Ativo" : "Inativo"}
+                  </span>
+                )}
+              </Td>
+              <Td>
+                {isAdmin && (
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="secondary" size="sm" onClick={() => setEditing(s)}>
+                      Editar
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={async () => {
+                        if (
+                          await confirm({
+                            title: "Remover agendamento",
+                            message: "Remover este agendamento? A automação não será mais disparada por ele.",
+                            confirmLabel: "Remover",
+                            tone: "danger",
+                          })
+                        )
+                          remove.mutate(s.id);
+                      }}
                     >
-                      {s.isEnabled ? "Ativo" : "Inativo"}
-                    </button>
-                  ) : (
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                        s.isEnabled
-                          ? "bg-green-100 text-green-700"
-                          : "bg-gray-100 dark:bg-gray-800 text-gray-500"
-                      }`}
-                    >
-                      {s.isEnabled ? "Ativo" : "Inativo"}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {isAdmin && (
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setEditing(s)}
-                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (
-                            await confirm({
-                              title: "Remover agendamento",
-                              message: "Remover este agendamento? A automação não será mais disparada por ele.",
-                              confirmLabel: "Remover",
-                              tone: "danger",
-                            })
-                          )
-                            remove.mutate(s.id);
-                        }}
-                        className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {schedules?.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-gray-600 dark:text-gray-400 text-sm">
-                  Nenhum agendamento cadastrado.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                      Remover
+                    </Button>
+                  </div>
+                )}
+              </Td>
+            </Tr>
+          ))}
+          {!isLoading && !isError && schedules?.length === 0 && (
+            <EmptyRow colSpan={5}>Nenhum agendamento cadastrado.</EmptyRow>
+          )}
+        </TBody>
+      </Table>
 
       {creating && (
         <Modal title="Novo agendamento" onClose={() => setCreating(false)} wide>

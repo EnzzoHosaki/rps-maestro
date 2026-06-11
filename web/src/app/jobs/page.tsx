@@ -20,6 +20,11 @@ import {
 import { useAuth } from "@/lib/auth";
 import { JobPanel } from "@/components/job-panel";
 import { SkeletonRow } from "@/components/skeleton";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
+import { EmptyRow } from "@/components/ui/empty-state";
+import { ErrorRow } from "@/components/ui/error-state";
 
 const PAGE_SIZE = 50;
 
@@ -163,109 +168,97 @@ export default function JobsPage() {
         </select>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-              <th className="px-4 py-3">ID</th>
-              <th className="px-4 py-3">Automação</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Criado</th>
-              <th className="px-4 py-3 text-right">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {items.map((j) => {
-              const automation = automations.find((a) => a.id === j.automationId);
-              const errCls = getJobErrorClass(j);
-              return (
-                <tr key={j.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td
-                    className="cursor-pointer px-4 py-3 font-mono text-xs text-gray-500"
-                    onClick={() => setSelectedJobId(j.id)}
-                  >
-                    {j.id.slice(0, 8)}…
-                  </td>
-                  <td
-                    className="cursor-pointer px-4 py-3 text-gray-700 dark:text-gray-300"
-                    onClick={() => setSelectedJobId(j.id)}
-                  >
-                    {automation?.name ?? j.automationId}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[j.status]}`}
+      <Table>
+        <THead>
+          <Th>ID</Th>
+          <Th>Automação</Th>
+          <Th>Status</Th>
+          <Th>Criado</Th>
+          <Th className="text-right">Ações</Th>
+        </THead>
+        <TBody>
+          {items.map((j) => {
+            const automation = automations.find((a) => a.id === j.automationId);
+            const errCls = getJobErrorClass(j);
+            return (
+              <Tr key={j.id}>
+                <Td
+                  className="cursor-pointer font-mono text-xs text-gray-500"
+                  onClick={() => setSelectedJobId(j.id)}
+                >
+                  {j.id.slice(0, 8)}…
+                </Td>
+                <Td
+                  className="cursor-pointer text-gray-700 dark:text-gray-300"
+                  onClick={() => setSelectedJobId(j.id)}
+                >
+                  {automation?.name ?? j.automationId}
+                </Td>
+                <Td>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge className={STATUS_STYLE[j.status]}>{STATUS_LABEL[j.status]}</Badge>
+                    {errCls && (
+                      <Badge size="xs" className={errorClassStyle(errCls)} title={errCls}>
+                        {errorClassLabel(errCls)}
+                      </Badge>
+                    )}
+                    {j.result?.partial_success === true && (
+                      <Badge
+                        size="xs"
+                        className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                        title="Parte dos itens processou com sucesso"
                       >
-                        {STATUS_LABEL[j.status]}
-                      </span>
-                      {errCls && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${errorClassStyle(errCls)}`}
-                          title={errCls}
-                        >
-                          {errorClassLabel(errCls)}
-                        </span>
-                      )}
-                      {j.result?.partial_success === true && (
-                        <span
-                          className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                          title="Parte dos itens processou com sucesso"
-                        >
-                          parcial
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {formatDistanceToNow(new Date(j.createdAt), {
-                      locale: ptBR,
-                      addSuffix: true,
-                    })}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1.5">
-                      <button
-                        onClick={() => setSelectedJobId(j.id)}
-                        className="rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        parcial
+                      </Badge>
+                    )}
+                  </div>
+                </Td>
+                <Td className="text-gray-500">
+                  {formatDistanceToNow(new Date(j.createdAt), {
+                    locale: ptBR,
+                    addSuffix: true,
+                  })}
+                </Td>
+                <Td>
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="secondary" size="sm" onClick={() => setSelectedJobId(j.id)}>
+                      Ver logs
+                    </Button>
+                    {isOperatorPlus && isActiveStatus(j.status) && (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => cancelMutation.mutate(j.id)}
+                        disabled={cancelMutation.isPending}
                       >
-                        Ver logs
-                      </button>
-                      {isOperatorPlus && isActiveStatus(j.status) && (
-                        <button
-                          onClick={() => cancelMutation.mutate(j.id)}
-                          disabled={cancelMutation.isPending}
-                          className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-                        >
-                          Cancelar
-                        </button>
-                      )}
-                      {isOperatorPlus && isRetryableStatus(j.status) && (
-                        <button
-                          onClick={() => retryMutation.mutate(j.id)}
-                          disabled={retryMutation.isPending}
-                          className="rounded bg-rps-sage-soft px-2 py-1 text-xs font-medium text-rps-olive-dark hover:bg-rps-sage disabled:opacity-50"
-                        >
-                          Reexecutar
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {!listQuery.isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-600 dark:text-gray-400">
-                  Nenhum job encontrado com os filtros atuais.
-                </td>
-              </tr>
-            )}
-            {listQuery.isLoading &&
-              Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
-          </tbody>
-        </table>
-      </div>
+                        Cancelar
+                      </Button>
+                    )}
+                    {isOperatorPlus && isRetryableStatus(j.status) && (
+                      <Button
+                        variant="soft"
+                        size="sm"
+                        onClick={() => retryMutation.mutate(j.id)}
+                        disabled={retryMutation.isPending}
+                      >
+                        Reexecutar
+                      </Button>
+                    )}
+                  </div>
+                </Td>
+              </Tr>
+            );
+          })}
+          {listQuery.isError && items.length === 0 && (
+            <ErrorRow colSpan={5} onRetry={() => listQuery.refetch()} />
+          )}
+          {!listQuery.isLoading && !listQuery.isError && items.length === 0 && (
+            <EmptyRow colSpan={5}>Nenhum job encontrado com os filtros atuais.</EmptyRow>
+          )}
+          {listQuery.isLoading &&
+            Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} cols={5} />)}
+        </TBody>
+      </Table>
 
       {total > 0 && (
         <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
@@ -273,23 +266,25 @@ export default function JobsPage() {
             {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} de {total}
           </span>
           <div className="flex gap-2">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               disabled={offset === 0}
-              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
             >
               Anterior
-            </button>
+            </Button>
             <span className="px-2 text-xs text-gray-500">
               {page} / {totalPages}
             </span>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setOffset(offset + PAGE_SIZE)}
               disabled={offset + PAGE_SIZE >= total}
-              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40"
             >
               Próximo
-            </button>
+            </Button>
           </div>
         </div>
       )}
