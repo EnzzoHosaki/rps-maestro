@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
+import { ChevronDown, Menu, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useTheme, type ThemePref } from "@/lib/theme";
+import { useNav } from "@/lib/nav";
 
 const THEME_LABEL: Record<ThemePref, string> = {
   light: "Tema: claro",
@@ -57,14 +58,24 @@ function pageTitle(pathname: string): string {
 export function Header() {
   const pathname = usePathname();
   const { email, role, logout } = useAuth();
+  const { toggle } = useNav();
 
   if (pathname === "/login") return null;
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 dark:border-gray-800 dark:bg-gray-900">
-      <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-        {pageTitle(pathname)}
-      </h1>
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 sm:px-6 dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={toggle}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-gray-100 lg:hidden dark:text-gray-400 dark:hover:bg-gray-800"
+          aria-label="Abrir menu"
+        >
+          <Menu className="h-5 w-5" aria-hidden />
+        </button>
+        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          {pageTitle(pathname)}
+        </h1>
+      </div>
 
       <div className="flex items-center gap-2">
         <ThemeToggle />
