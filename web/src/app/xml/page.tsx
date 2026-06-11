@@ -29,9 +29,10 @@ const PAGE_SIZE = 50;
 
 const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "all", label: "Todos" },
-  { value: "arrived", label: "Chegou" },
-  { value: "synced", label: "Sincronizado" },
-  { value: "imported", label: "Importado" },
+  { value: "arrived", label: "A Sincronizar" },
+  { value: "synced", label: "Sincronizada" },
+  { value: "pending_import", label: "Aguardando Importação" },
+  { value: "imported", label: "Importada" },
   { value: "import_ignored", label: "Ignorada" },
   { value: "stuck", label: "Travada" },
   { value: "lost", label: "Sumida" },
@@ -45,12 +46,14 @@ function StatCard({
   hint,
   tone = "neutral",
   loading = false,
+  title,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   tone?: "neutral" | "success" | "warning" | "danger";
   loading?: boolean;
+  title?: string;
 }) {
   const accent =
     tone === "success"
@@ -61,7 +64,10 @@ function StatCard({
           ? "text-red-700"
           : "text-gray-900 dark:text-gray-100";
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm">
+    <div
+      title={title}
+      className={`rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm${title ? " cursor-help" : ""}`}
+    >
       <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
       {loading ? (
         <Skeleton className="mt-2 h-7 w-16" />
@@ -263,10 +269,10 @@ function XmlPageContent() {
 
       {/* Cards do pipeline (Travadas/Sumidas só aparecem quando > 0) */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="A sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={overview.isLoading} />
+        <StatCard label="A Sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={overview.isLoading} />
         <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={overview.isLoading} />
-        <StatCard label="Aguardando import." value={ov?.pending_import ?? "—"} loading={overview.isLoading} />
-        <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={overview.isLoading} />
+        <StatCard label="Aguardando Importação" value={ov?.pending_import ?? "—"} loading={overview.isLoading} />
+        <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={overview.isLoading} title="Contagem do dia. O filtro 'Importada' mostra todas." />
         <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={overview.isLoading} />
         {showStuck && (
           <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={overview.isLoading} />
@@ -283,11 +289,11 @@ function XmlPageContent() {
             {" · "}
             {ov.in_transit} em trânsito
           </span>
-          <span title="Latência entre etapas do pipeline. Pode incluir notas de backfill histórico, o que infla os percentis.">
-            Latência chegada→sync: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
+          <span title="Percentis das transições dos últimos 30 dias; exclui backfill histórico.">
+            Latência chegada→sync (30d): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
           </span>
-          <span title="Latência entre etapas do pipeline. Pode incluir notas de backfill histórico, o que infla os percentis.">
-            Latência sync→import: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
+          <span title="Percentis das transições dos últimos 30 dias; exclui backfill histórico.">
+            Latência sync→import (30d): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
           </span>
         </div>
       )}
@@ -570,6 +576,23 @@ const STAGE_LABEL: Record<string, string> = {
   import: "Importação",
 };
 
+// Rótulos legíveis de event_type na timeline. `seen_pending` NÃO é importação —
+// é o Athenas ter enxergado a nota (ainda falta importar); rotular como estágio
+// "Aguardando importação" evita a leitura errada de "já importada".
+const EVENT_LABEL: Record<string, string> = {
+  seen_pending: "visto no Athenas",
+};
+
+function spanLabels(s: { stage: string; event_type: string }): { stage: string; event: string } {
+  if (s.event_type === "seen_pending") {
+    return { stage: "Aguardando importação", event: EVENT_LABEL.seen_pending };
+  }
+  return {
+    stage: STAGE_LABEL[s.stage] ?? s.stage,
+    event: EVENT_LABEL[s.event_type] ?? s.event_type,
+  };
+}
+
 function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => void }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["xml", "nota", chave],
@@ -610,16 +633,19 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
           <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Linha do tempo</h3>
           <ol className="relative space-y-3 border-l border-gray-200 pl-5 dark:border-gray-700">
             {data.spans.length === 0 && <li className="text-sm text-gray-500">Sem eventos.</li>}
-            {data.spans.map((s, i) => (
-              <li key={i} className="relative">
-                <span className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-rps-olive-dark" />
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                  {STAGE_LABEL[s.stage] ?? s.stage} <span className="text-xs font-normal text-gray-500">· {s.event_type}</span>
-                </p>
-                <p className="text-xs text-gray-500">{fmtTs(s.observed_at)} · {s.source}</p>
-                {s.file_path && <p className="break-all text-[11px] text-gray-400">{s.file_path}</p>}
-              </li>
-            ))}
+            {data.spans.map((s, i) => {
+              const l = spanLabels(s);
+              return (
+                <li key={i} className="relative">
+                  <span className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-rps-olive-dark" />
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                    {l.stage} <span className="text-xs font-normal text-gray-500">· {l.event}</span>
+                  </p>
+                  <p className="text-xs text-gray-500">{fmtTs(s.observed_at)} · {s.source}</p>
+                  {s.file_path && <p className="break-all text-[11px] text-gray-400">{s.file_path}</p>}
+                </li>
+              );
+            })}
           </ol>
         </>
       )}

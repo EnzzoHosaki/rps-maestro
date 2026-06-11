@@ -164,11 +164,11 @@ function cleanParams(f: NotaListFilter): Record<string, string | number> {
 // ── Labels / estilos de status (pt-BR) ───────────────────────────────────────
 
 export const XML_STATUS_LABEL: Record<NotaStatus, string> = {
-  arrived: "Chegou",
-  synced: "Sincronizado",
-  imported: "Importado",
-  import_ignored: "Import. ignorada",
-  pending_import: "Aguardando import.",
+  arrived: "A Sincronizar",
+  synced: "Sincronizada",
+  imported: "Importada",
+  import_ignored: "Ignorada",
+  pending_import: "Aguardando Importação",
   stuck: "Travada",
   lost: "Sumida",
 };
