@@ -297,7 +297,12 @@ function XmlPageContent() {
         {(["notas", "empresas"] as const).map((v) => (
           <button
             key={v}
-            onClick={() => setView(v)}
+            onClick={() => {
+              // ir pra aba Empresas zera o filtro de empresa (ele só vale na
+              // lista de Notas; deixar grudado confunde ao voltar).
+              if (v === "empresas") clearEmpresaFilter();
+              setView(v);
+            }}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               view === v
                 ? "bg-rps-olive-dark text-white"
@@ -319,7 +324,12 @@ function XmlPageContent() {
           {STATUS_FILTERS.map((s) => (
             <button
               key={s.value}
-              onClick={() => reset(setStatusFilter)(s.value)}
+              onClick={() => {
+                // trocar de status zera o filtro de empresa — senão ele fica
+                // grudado e o resultado não bate com os cards globais.
+                clearEmpresaFilter();
+                reset(setStatusFilter)(s.value);
+              }}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 statusFilter === s.value
                   ? "bg-rps-olive-dark text-white"
