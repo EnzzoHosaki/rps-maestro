@@ -29,6 +29,7 @@ const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "arrived", label: "Chegou" },
   { value: "synced", label: "Sincronizado" },
+  { value: "pending_import", label: "Aguardando import." },
   { value: "imported", label: "Importado" },
   { value: "import_ignored", label: "Ignorada" },
   { value: "stuck", label: "Travada" },
