@@ -9,7 +9,8 @@ import {
   type UpdateUserPayload,
   type User,
 } from "@/lib/api";
-import { X } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { useConfirm } from "@/components/ui/confirm";
 import { useAuth } from "@/lib/auth";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -32,34 +33,6 @@ function errorMessage(err: unknown, fallback: string): string {
   }
   if (err instanceof Error) return err.message;
   return fallback;
-}
-
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-gray-900 p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Fechar"
-            className="rounded text-gray-500 hover:text-gray-900 dark:text-gray-100"
-          >
-            <X className="h-5 w-5" aria-hidden />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
 }
 
 function UserForm({
@@ -195,6 +168,7 @@ function ResetPasswordForm({
 
 export default function UsersPage() {
   const { isAdmin, userId } = useAuth();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const [includeInactive, setIncludeInactive] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -344,8 +318,16 @@ export default function UsersPage() {
                       {u.isActive ? (
                         !isSelf && (
                           <button
-                            onClick={() => {
-                              if (confirm(`Desativar ${u.email}?`)) deactivate.mutate(u.id);
+                            onClick={async () => {
+                              if (
+                                await confirm({
+                                  title: "Desativar usuário",
+                                  message: `Desativar ${u.email}? A conta perde o acesso, mas pode ser reativada depois.`,
+                                  confirmLabel: "Desativar",
+                                  tone: "danger",
+                                })
+                              )
+                                deactivate.mutate(u.id);
                             }}
                             className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
                           >
