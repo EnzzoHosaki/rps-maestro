@@ -237,11 +237,11 @@ function XmlPageContent() {
             {" · "}
             {ov.in_transit} em trânsito
           </span>
-          <span title="Latência entre etapas do pipeline. Pode incluir notas de backfill histórico, o que infla os percentis.">
-            Latência chegada→sync: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
+          <span title="Percentis das transições dos últimos 30 dias; exclui backfill histórico.">
+            Latência chegada→sync (30d): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
           </span>
-          <span title="Latência entre etapas do pipeline. Pode incluir notas de backfill histórico, o que infla os percentis.">
-            Latência sync→import: p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
+          <span title="Percentis das transições dos últimos 30 dias; exclui backfill histórico.">
+            Latência sync→import (30d): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
           </span>
         </div>
       )}
