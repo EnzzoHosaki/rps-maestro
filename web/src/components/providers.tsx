@@ -7,6 +7,7 @@ import { queryClient } from "@/lib/query-client";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { ConfirmProvider } from "@/components/ui/confirm";
+import { NavProvider } from "@/lib/nav";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -14,7 +15,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeProvider>
         <AuthProvider>
           <ConfirmProvider>
-            {children}
+            <NavProvider>{children}</NavProvider>
             <Toaster richColors position="top-right" closeButton />
             <ReactQueryDevtools initialIsOpen={false} />
           </ConfirmProvider>

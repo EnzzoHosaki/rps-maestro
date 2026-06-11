@@ -100,7 +100,7 @@ export function JobPanel({
   });
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-[520px] flex-col border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl">
+    <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl">
       <div className="flex items-start justify-between border-b border-gray-200 dark:border-gray-800 px-4 py-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
