@@ -43,6 +43,8 @@ export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all");
   const [automationFilter, setAutomationFilter] = useState<number | "all">("all");
   const [errorClassFilter, setErrorClassFilter] = useState<string | "all">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [offset, setOffset] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
@@ -52,14 +54,22 @@ export default function JobsPage() {
     staleTime: 60_000,
   });
 
+  // O backend filtra created_at por since/until em RFC3339; o input dá
+  // yyyy-mm-dd local. Converte pra [00:00, 23:59:59.999] do dia LOCAL —
+  // toISOString resolve o offset (BRT→UTC) certo.
+  const since = dateFrom ? new Date(`${dateFrom}T00:00:00`).toISOString() : undefined;
+  const until = dateTo ? new Date(`${dateTo}T23:59:59.999`).toISOString() : undefined;
+
   const listQuery = useQuery({
-    queryKey: ["jobs", "list", { statusFilter, automationFilter, offset }],
+    queryKey: ["jobs", "list", { statusFilter, automationFilter, since, until, offset }],
     queryFn: () =>
       jobsApi
         .list({
           status: statusFilter === "all" ? undefined : statusFilter,
           automationId:
             automationFilter === "all" ? undefined : automationFilter,
+          since,
+          until,
           limit: PAGE_SIZE,
           offset,
         })
@@ -166,6 +176,30 @@ export default function JobsPage() {
             </option>
           ))}
         </select>
+
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setOffset(0);
+            }}
+            title="Criados a partir de"
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          />
+          <span>até</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setOffset(0);
+            }}
+            title="Criados até"
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          />
+        </div>
       </div>
 
       <Table>
