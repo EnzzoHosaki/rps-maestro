@@ -9,10 +9,12 @@ import {
   automationsApi,
   jobsApi,
   metricsApi,
+  schedulesApi,
   type Job,
   type JobsPerHourBucket,
   type MetricsRange,
 } from "@/lib/api";
+import { describeCron } from "@/lib/cron";
 import { STATUS_LABEL, STATUS_STYLE } from "@/lib/jobs";
 import { JobPanel } from "@/components/job-panel";
 import { Skeleton } from "@/components/skeleton";
@@ -232,6 +234,23 @@ export default function DashboardPage() {
     refetchInterval: 30_000,
   });
 
+  // Próximas execuções agendadas — o dashboard mostra o que VAI acontecer,
+  // não só o que aconteceu. next_run_at vem do scheduler.
+  const { data: schedules = [], isError: schedulesError, refetch: refetchSchedules } = useQuery({
+    queryKey: ["schedules"],
+    queryFn: () => schedulesApi.list().then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+
+  const upcoming = useMemo(
+    () =>
+      schedules
+        .filter((s) => s.isEnabled && s.nextRunAt)
+        .sort((a, b) => new Date(a.nextRunAt!).getTime() - new Date(b.nextRunAt!).getTime())
+        .slice(0, 8),
+    [schedules]
+  );
+
   const activeError = pendingError || runningError;
 
   const automationName = (id: number) =>
@@ -303,7 +322,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
         <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Rodando agora</h2>
@@ -382,6 +401,36 @@ export default function DashboardPage() {
                           locale: ptBR,
                           addSuffix: true,
                         })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Próximas execuções</h2>
+            <Link href="/schedules" className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-300">
+              ver agendamentos
+            </Link>
+          </div>
+          {schedulesError && upcoming.length === 0 ? (
+            <ErrorState onRetry={() => refetchSchedules()} />
+          ) : upcoming.length === 0 ? (
+            <EmptyState className="py-4">Nenhum agendamento ativo.</EmptyState>
+          ) : (
+            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+              {upcoming.map((s) => (
+                <li key={s.id} className="flex items-center gap-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {automationName(s.automationId)}
+                    </p>
+                    <p className="truncate text-xs text-gray-500">{describeCron(s.cronExpression)}</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-medium text-rps-olive-dark">
+                    {formatDistanceToNow(new Date(s.nextRunAt!), { locale: ptBR, addSuffix: true })}
                   </span>
                 </li>
               ))}
