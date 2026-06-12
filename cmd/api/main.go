@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/EnzzoHosaki/rps-maestro/internal/api"
@@ -42,6 +46,13 @@ func main() {
 	}
 
 	logger.Init(cfg.Log.Level)
+
+	if err := cfg.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("configuração inválida")
+	}
+	if cfg.Worker.APIKey == "" {
+		log.Warn().Msg("MAESTRO_WORKER_API_KEY vazio — endpoints /worker estão SEM autenticação (ok só em dev)")
+	}
 	log.Info().Str("log_level", cfg.Log.Level).Msg("configurações carregadas")
 
 	repo, err := repository.NewPostgresRepository(cfg.Database)
@@ -57,7 +68,10 @@ func main() {
 	}
 	defer queueClient.Close()
 
-	ctx := context.Background()
+	// ctx cancelado por SIGINT/SIGTERM — propaga pro DLQ consumer, retry worker
+	// e scheduler pararem junto no shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	userRepo := repo.GetUserRepository()
 	automationRepo := repo.GetAutomationRepository()
@@ -76,7 +90,6 @@ func main() {
 
 	sched := scheduler.New(scheduleRepo, automationRepo, jobRepo, queueClient)
 	sched.Start(ctx)
-	defer sched.Stop()
 
 	server := api.NewServer(
 		cfg.Server, cfg.JWT, cfg.Worker,
@@ -84,5 +97,22 @@ func main() {
 		queueClient, sched,
 	)
 
-	server.Start()
+	// Sobe o HTTP numa goroutine; o main bloqueia no sinal de shutdown.
+	go func() {
+		if err := server.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal().Err(err).Msg("servidor HTTP encerrado com erro")
+		}
+	}()
+
+	<-ctx.Done()
+	stop() // restaura o handler padrão: um 2º sinal mata na hora
+	log.Info().Msg("sinal de shutdown recebido, encerrando graciosamente…")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("erro no shutdown do servidor HTTP")
+	}
+	sched.Stop()
+	log.Info().Msg("shutdown concluído")
 }
