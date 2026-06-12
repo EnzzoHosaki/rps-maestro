@@ -235,6 +235,13 @@ func (h *AutomationHandler) ExecuteAutomation(c *gin.Context) {
 	}
 
 	if err := h.queueClient.PublishJob(c.Request.Context(), queueName, queueMsg); err != nil {
+		// Compensação: o job já foi criado como 'pending'. Sem isto ele ficaria
+		// ÓRFÃO — o retry worker só resgata jobs 'running' (GetStuckJobs), então
+		// um 'pending' sem mensagem na fila nunca seria reprocessado nem
+		// marcado falho. Marca failed pra ficar visível e retentável à mão.
+		failResult, _ := json.Marshal(map[string]string{"error": "Falha ao enfileirar o job no broker: " + err.Error()})
+		_ = h.jobRepo.SetResult(c.Request.Context(), job.ID, failResult)
+		_ = h.jobRepo.UpdateStatus(c.Request.Context(), job.ID, "failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao enfileirar job: " + err.Error()})
 		return
 	}
