@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -102,4 +103,18 @@ func LoadConfig(path string) (config Config, err error) {
 		}
 	}
 	return
+}
+
+// Validate falha rápido no boot quando uma config crítica está ausente, em vez
+// de subir num estado inseguro/quebrado. O compose já exige MAESTRO_JWT_SECRET
+// via `${VAR:?}`, mas validar aqui protege execuções fora do compose (binário
+// solto, testes, outro orquestrador).
+func (c Config) Validate() error {
+	if strings.TrimSpace(c.JWT.Secret) == "" {
+		return errors.New("MAESTRO_JWT_SECRET é obrigatório (gere com: openssl rand -base64 48)")
+	}
+	if c.Database.Password == "" {
+		return errors.New("MAESTRO_DB_PASSWORD é obrigatório")
+	}
+	return nil
 }

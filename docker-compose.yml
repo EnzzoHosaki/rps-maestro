@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: maestro_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -23,6 +24,7 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: maestro_rabbitmq
+    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
@@ -37,6 +39,7 @@ services:
   maestro-backend:
     container_name: maestro_backend
     build: .
+    restart: unless-stopped
     ports:
       - "8080:8000"
     volumes:
@@ -67,6 +70,7 @@ services:
 
   maestro-web:
     container_name: maestro_web
+    restart: unless-stopped
     build:
       context: ./web
       args:
