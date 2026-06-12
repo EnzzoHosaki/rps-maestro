@@ -297,26 +297,38 @@ func (r *PostgresJobRepository) GetLastParamsForUser(ctx context.Context, automa
 	return params, nil
 }
 
+// dashboardTZ é o fuso usado pra cortar buckets de DIA nas agregações do
+// dashboard (date_trunc de 3 args, PG14+). Sem ele o corte sai em dia UTC e
+// jobs finalizados entre 21h e 00h BRT aparecem no "dia seguinte" do gráfico
+// (e o completedToday vira "hoje em UTC", rolando às 21h locais). Sistema é
+// on-prem single-tenant da RPS (Brasil), então uma constante basta.
+const dashboardTZ = "America/Sao_Paulo"
+
 // GetMetrics consulta agregados úteis para o dashboard em uma única query.
-func (r *PostgresJobRepository) GetMetrics(ctx context.Context) (*models.JobMetrics, error) {
+// `interval` é uma string de intervalo do Postgres ("24 hours", "7 days",
+// "30 days") vinda de uma whitelist no handler — nunca de input direto do
+// usuário. Os campos *Last24h do modelo mantêm o nome por compatibilidade de
+// JSON, mas refletem o intervalo pedido. running/pending/completedToday são
+// independentes do intervalo (snapshot atual / dia corrente em dashboardTZ).
+func (r *PostgresJobRepository) GetMetrics(ctx context.Context, interval string) (*models.JobMetrics, error) {
 	sql := `
 		SELECT
 		    COUNT(*) FILTER (WHERE status = 'running')                                      AS running,
 		    COUNT(*) FILTER (WHERE status = 'pending')                                      AS pending,
 		    COUNT(*) FILTER (
 		        WHERE status IN ('completed', 'completed_no_invoices')
-		          AND completed_at >= date_trunc('day', NOW())
+		          AND completed_at >= date_trunc('day', NOW(), $2)
 		    )                                                                               AS completed_today,
-		    COUNT(*) FILTER (WHERE status = 'failed'   AND completed_at >= NOW() - INTERVAL '24 hours') AS failed_24h,
-		    COUNT(*) FILTER (WHERE status = 'canceled' AND completed_at >= NOW() - INTERVAL '24 hours') AS canceled_24h,
+		    COUNT(*) FILTER (WHERE status = 'failed'   AND completed_at >= NOW() - $1::interval) AS failed_period,
+		    COUNT(*) FILTER (WHERE status = 'canceled' AND completed_at >= NOW() - $1::interval) AS canceled_period,
 		    COUNT(*) FILTER (
 		        WHERE status IN ('completed', 'completed_no_invoices', 'failed', 'canceled')
-		          AND completed_at >= NOW() - INTERVAL '24 hours'
-		    )                                                                               AS finished_24h,
+		          AND completed_at >= NOW() - $1::interval
+		    )                                                                               AS finished_period,
 		    COUNT(*) FILTER (
 		        WHERE status IN ('completed', 'completed_no_invoices')
-		          AND completed_at >= NOW() - INTERVAL '24 hours'
-		    )                                                                               AS succeeded_24h
+		          AND completed_at >= NOW() - $1::interval
+		    )                                                                               AS succeeded_period
 		FROM jobs
 	`
 
@@ -325,7 +337,7 @@ func (r *PostgresJobRepository) GetMetrics(ctx context.Context) (*models.JobMetr
 		completedToday                                     int
 		failed24h, canceled24h, finished24h, succeeded24h int
 	)
-	err := r.db.QueryRow(ctx, sql).Scan(
+	err := r.db.QueryRow(ctx, sql, interval, dashboardTZ).Scan(
 		&running, &pending,
 		&completedToday,
 		&failed24h, &canceled24h, &finished24h, &succeeded24h,
@@ -350,13 +362,19 @@ func (r *PostgresJobRepository) GetMetrics(ctx context.Context) (*models.JobMetr
 	}, nil
 }
 
-// GetJobsPerHour retorna 24 buckets contínuos cobrindo as últimas 24h
-// (incluindo horas sem jobs, com counts zerados). Bucket por completed_at
+// GetJobsSeries retorna `buckets` buckets contínuos terminando agora
+// (incluindo buckets sem jobs, com counts zerados). Bucket por completed_at
 // pra evitar contar jobs que ainda não terminaram.
-func (r *PostgresJobRepository) GetJobsPerHour(ctx context.Context) ([]models.JobsPerHourBucket, error) {
+//
+// `bucket` é a unidade do date_trunc ("hour"/"day") e `step` o passo do
+// generate_series ("1 hour"/"1 day") — ambos vêm de whitelist no handler,
+// nunca de input direto do usuário. 24h→24×hour, 7d→7×day, 30d→30×day.
+// Buckets cortados em dashboardTZ (dias = dia local, não dia UTC; pra hora
+// não muda nada, BRT é offset inteiro).
+func (r *PostgresJobRepository) GetJobsSeries(ctx context.Context, bucket string, buckets int, step string) ([]models.JobsPerHourBucket, error) {
 	sql := `
 		SELECT
-		    h.hour,
+		    h.bucket,
 		    COUNT(j.id) FILTER (
 		        WHERE j.status IN ('completed', 'completed_no_invoices', 'failed', 'canceled')
 		    ) AS total,
@@ -365,32 +383,32 @@ func (r *PostgresJobRepository) GetJobsPerHour(ctx context.Context) ([]models.Jo
 		    ) AS succeeded,
 		    COUNT(j.id) FILTER (WHERE j.status = 'failed') AS failed
 		FROM generate_series(
-		    date_trunc('hour', NOW()) - INTERVAL '23 hours',
-		    date_trunc('hour', NOW()),
-		    INTERVAL '1 hour'
-		) AS h(hour)
-		LEFT JOIN jobs j ON date_trunc('hour', j.completed_at) = h.hour
-		GROUP BY h.hour
-		ORDER BY h.hour
+		    date_trunc($1, NOW(), $4) - ($2::int - 1) * $3::interval,
+		    date_trunc($1, NOW(), $4),
+		    $3::interval
+		) AS h(bucket)
+		LEFT JOIN jobs j ON date_trunc($1, j.completed_at, $4) = h.bucket
+		GROUP BY h.bucket
+		ORDER BY h.bucket
 	`
 
-	rows, err := r.db.Query(ctx, sql)
+	rows, err := r.db.Query(ctx, sql, bucket, buckets, step, dashboardTZ)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao agregar jobs por hora: %w", err)
+		return nil, fmt.Errorf("erro ao agregar série de jobs: %w", err)
 	}
 	defer rows.Close()
 
-	buckets := make([]models.JobsPerHourBucket, 0, 24)
+	out := make([]models.JobsPerHourBucket, 0, buckets)
 	for rows.Next() {
 		var b models.JobsPerHourBucket
 		if err := rows.Scan(&b.Hour, &b.Total, &b.Succeeded, &b.Failed); err != nil {
 			return nil, fmt.Errorf("erro ao escanear bucket: %w", err)
 		}
-		buckets = append(buckets, b)
+		out = append(out, b)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("erro ao iterar buckets: %w", err)
 	}
 
-	return buckets, nil
+	return out, nil
 }
