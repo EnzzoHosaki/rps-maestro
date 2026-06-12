@@ -11,6 +11,7 @@ import {
   metricsApi,
   type Job,
   type JobsPerHourBucket,
+  type MetricsRange,
 } from "@/lib/api";
 import { STATUS_LABEL, STATUS_STYLE } from "@/lib/jobs";
 import { JobPanel } from "@/components/job-panel";
@@ -53,7 +54,16 @@ function StatCard({
   );
 }
 
-function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
+// Configuração dos períodos do dashboard. label aparece nos pills e no
+// sufixo dos cards; chartTitle no cabeçalho do gráfico. O modo do gráfico
+// (hora × dia) deriva do range: 24h é horário, o resto é diário.
+const RANGES: { value: MetricsRange; label: string; chartTitle: string }[] = [
+  { value: "24h", label: "24h", chartTitle: "Jobs por hora · últimas 24h" },
+  { value: "7d", label: "7 dias", chartTitle: "Jobs por dia · últimos 7 dias" },
+  { value: "30d", label: "30 dias", chartTitle: "Jobs por dia · últimos 30 dias" },
+];
+
+function JobsPerHourChart({ buckets, mode }: { buckets: JobsPerHourBucket[]; mode: "hour" | "day" }) {
   if (buckets.length === 0) {
     return <EmptyState>Sem dados.</EmptyState>;
   }
@@ -67,8 +77,19 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
   const slotW = chartW / buckets.length;
   const barW = Math.max(2, slotW - 3);
 
+  // Densidade de rótulos no eixo X: horas a cada 4; dias todos (7d) ou a
+  // cada 5 (30d) pra não amontoar.
+  const tickStep = mode === "hour" ? 4 : buckets.length <= 7 ? 1 : 5;
+  const tickFmt = mode === "hour" ? "HH'h'" : "dd/MM";
+  const tooltipFmt = mode === "hour" ? "HH:00" : "dd/MM";
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Jobs por hora nas últimas 24h">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full"
+      role="img"
+      aria-label={mode === "hour" ? "Jobs por hora no período" : "Jobs por dia no período"}
+    >
       <line
         x1={P.left}
         x2={W - P.right}
@@ -114,7 +135,7 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
               className="fill-red-300"
             />
             <title>
-              {`${format(new Date(b.hour), "HH:00")} — ${b.total} jobs (${b.succeeded} ok, ${b.failed} falhas)`}
+              {`${format(new Date(b.hour), tooltipFmt)} — ${b.total} jobs (${b.succeeded} ok, ${b.failed} falhas)`}
             </title>
           </g>
         );
@@ -122,7 +143,7 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
 
       {buckets
         .map((b, i) => ({ b, i }))
-        .filter(({ i }) => i % 4 === 0)
+        .filter(({ i }) => i % tickStep === 0)
         .map(({ b, i }) => (
           <text
             key={b.hour}
@@ -132,7 +153,7 @@ function JobsPerHourChart({ buckets }: { buckets: JobsPerHourBucket[] }) {
             className="fill-gray-500"
             textAnchor="middle"
           >
-            {format(new Date(b.hour), "HH'h'")}
+            {format(new Date(b.hour), tickFmt)}
           </text>
         ))}
     </svg>
@@ -157,17 +178,22 @@ function ChartLegend() {
 
 export default function DashboardPage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [range, setRange] = useState<MetricsRange>("24h");
+  const rangeCfg = RANGES.find((r) => r.value === range) ?? RANGES[0];
 
   const { data: metrics, isLoading: metricsLoading } = useQuery({
-    queryKey: ["metrics"],
-    queryFn: () => metricsApi.get().then((r) => r.data),
+    queryKey: ["metrics", range],
+    queryFn: () => metricsApi.get(range).then((r) => r.data),
     refetchInterval: 5000,
+    // mantém os números anteriores na troca de período (sem flash de skeleton)
+    placeholderData: (prev) => prev,
   });
 
   const { data: chart = [], isError: chartError, refetch: refetchChart } = useQuery({
-    queryKey: ["metrics", "jobsPerHour"],
-    queryFn: () => metricsApi.jobsPerHour().then((r) => r.data),
+    queryKey: ["metrics", "jobsPerHour", range],
+    queryFn: () => metricsApi.jobsPerHour(range).then((r) => r.data),
     refetchInterval: 60_000,
+    placeholderData: (prev) => prev,
   });
 
   const { data: automations = [] } = useQuery({
@@ -218,6 +244,24 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Seletor de período — vale pros cards de falha/cancelado/sucesso e pro gráfico */}
+      <div className="flex items-center justify-end gap-1.5">
+        <span className="mr-1 text-xs text-gray-500">Período:</span>
+        {RANGES.map((r) => (
+          <button
+            key={r.value}
+            onClick={() => setRange(r.value)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              range === r.value
+                ? "bg-rps-olive-dark text-white"
+                : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <StatCard
           label="Rodando"
@@ -228,14 +272,14 @@ export default function DashboardPage() {
         <StatCard label="Pendentes" value={metrics?.pending ?? "—"} loading={metricsLoading} />
         <StatCard label="Concluídos hoje" value={metrics?.completedToday ?? "—"} loading={metricsLoading} />
         <StatCard
-          label="Falhas 24h"
+          label={`Falhas ${rangeCfg.label}`}
           value={metrics?.failedLast24h ?? "—"}
           tone={metrics?.failedLast24h ? "danger" : "neutral"}
           loading={metricsLoading}
         />
-        <StatCard label="Cancelados 24h" value={metrics?.canceledLast24h ?? "—"} loading={metricsLoading} />
+        <StatCard label={`Cancelados ${rangeCfg.label}`} value={metrics?.canceledLast24h ?? "—"} loading={metricsLoading} />
         <StatCard
-          label="Sucesso 24h"
+          label={`Sucesso ${rangeCfg.label}`}
           value={successRateLabel}
           hint={metrics ? `${metrics.totalLast24h} finalizados` : undefined}
           loading={metricsLoading}
@@ -244,7 +288,7 @@ export default function DashboardPage() {
 
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Jobs por hora · últimas 24h</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{rangeCfg.chartTitle}</h2>
           <span className="text-xs text-gray-500">
             {metrics ? `${metrics.totalLast24h} no período` : "—"}
           </span>
@@ -253,7 +297,7 @@ export default function DashboardPage() {
           <ErrorState onRetry={() => refetchChart()} />
         ) : (
           <>
-            <JobsPerHourChart buckets={chart} />
+            <JobsPerHourChart buckets={chart} mode={range === "24h" ? "hour" : "day"} />
             <ChartLegend />
           </>
         )}
