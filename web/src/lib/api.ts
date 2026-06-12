@@ -328,9 +328,16 @@ export const jobsApi = {
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
 
+// Período suportado pelos endpoints de métricas. 24h = buckets de hora;
+// 7d/30d = buckets de dia. Os campos *Last24h do JobMetrics mantêm o nome
+// por compatibilidade, mas refletem o período pedido.
+export type MetricsRange = "24h" | "7d" | "30d";
+
 export const metricsApi = {
-  get: () => api.get<JobMetrics>("/metrics"),
-  jobsPerHour: () => api.get<JobsPerHourBucket[]>("/metrics/jobs-per-hour"),
+  get: (range: MetricsRange = "24h") =>
+    api.get<JobMetrics>("/metrics", { params: { range } }),
+  jobsPerHour: (range: MetricsRange = "24h") =>
+    api.get<JobsPerHourBucket[]>("/metrics/jobs-per-hour", { params: { range } }),
 };
 
 // ── Schedules ─────────────────────────────────────────────────────────────────
