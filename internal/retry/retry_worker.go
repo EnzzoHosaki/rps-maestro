@@ -132,6 +132,16 @@ func (w *RetryWorker) checkAndRetry(ctx context.Context) {
 
 		if err := w.queueClient.PublishJob(ctx, queueName, msg); err != nil {
 			log.Error().Err(err).Str("job_id", job.ID.String()).Msg("[retry] erro ao re-enfileirar job")
+			// O job já foi setado pra 'pending' acima; se o publish falha ele
+			// fica ÓRFÃO (GetStuckJobs só pega 'running'). Marca failed pra não
+			// sumir do radar.
+			failResult, _ := json.Marshal(map[string]string{"error": "Falha ao re-enfileirar o job no broker: " + err.Error()})
+			if err := w.jobRepo.SetResult(ctx, job.ID, failResult); err != nil {
+				log.Error().Err(err).Str("job_id", job.ID.String()).Msg("[retry] erro ao salvar resultado de falha de re-enfileiramento")
+			}
+			if err := w.jobRepo.UpdateStatus(ctx, job.ID, "failed"); err != nil {
+				log.Error().Err(err).Str("job_id", job.ID.String()).Msg("[retry] erro ao marcar job como failed após falha de re-enfileiramento")
+			}
 			continue
 		}
 

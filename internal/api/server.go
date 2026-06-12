@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/EnzzoHosaki/rps-maestro/internal/api/handlers"
@@ -27,6 +29,7 @@ type Server struct {
 	queueClient    *queue.RabbitMQClient
 	scheduler      *scheduler.Scheduler
 	router         *gin.Engine
+	httpServer     *http.Server
 }
 
 func NewServer(
@@ -183,13 +186,22 @@ func (s *Server) setupRoutes() {
 	}
 }
 
-func (s *Server) Start() {
+// Start sobe o servidor HTTP e bloqueia até ele parar. Retorna
+// http.ErrServerClosed num shutdown limpo (o caller trata como normal).
+func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.config.Port)
+	s.httpServer = &http.Server{Addr: addr, Handler: s.router}
 	log.Info().Str("addr", addr).Msg("servidor HTTP iniciado")
+	return s.httpServer.ListenAndServe()
+}
 
-	if err := s.router.Run(addr); err != nil {
-		log.Fatal().Err(err).Msg("servidor encerrado com erro")
+// Shutdown encerra o servidor HTTP graciosamente, deixando as requisições em
+// andamento terminarem dentro do prazo do ctx.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer == nil {
+		return nil
 	}
+	return s.httpServer.Shutdown(ctx)
 }
 
 func (s *Server) healthCheck(c *gin.Context) {

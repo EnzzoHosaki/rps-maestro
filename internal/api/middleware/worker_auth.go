@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +15,9 @@ func WorkerAPIKey(apiKey string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if c.GetHeader("X-Worker-API-Key") != apiKey {
+		// Comparação em tempo constante pra não vazar a chave por timing.
+		got := c.GetHeader("X-Worker-API-Key")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(apiKey)) != 1 {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "API key inválida"})
 			return
 		}
