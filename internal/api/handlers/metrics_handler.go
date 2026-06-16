@@ -93,3 +93,25 @@ func (h *MetricsHandler) GetJobsPerHour(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, buckets)
 }
+
+// recentRuns é quantos status recentes a tabela de saúde mostra por automação
+// (os "pontinhos" verde/vermelho do dashboard).
+const recentRuns = 12
+
+// GetAutomationHealth retorna a saúde agregada por automação no período pedido
+// (?range=24h|7d|30d, default 24h): total/sucesso/falha/cancelado, taxa de
+// sucesso, duração p50/p95, split manual×agendado, e os últimos status.
+func (h *MetricsHandler) GetAutomationHealth(c *gin.Context) {
+	spec, ok := parseRange(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "range inválido; use 24h, 7d ou 30d"})
+		return
+	}
+
+	health, err := h.jobRepo.GetAutomationHealth(c.Request.Context(), spec.interval, recentRuns)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao calcular saúde por automação: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, health)
+}

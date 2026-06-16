@@ -157,6 +157,25 @@ export interface JobsPerHourBucket {
   failed: number;
 }
 
+// Saúde de uma automação no período (tabela do dashboard). Counts/duração/
+// manual×agendado são do período; lastStatus/lastRunAt e recent são all-time.
+export interface AutomationHealth {
+  automationId: number;
+  name: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  canceled: number;
+  successRate: number;
+  manual: number;
+  scheduled: number;
+  durationP50S?: number;
+  durationP95S?: number;
+  lastStatus?: JobStatus;
+  lastRunAt?: string;
+  recent: JobStatus[]; // últimos status, mais recente primeiro
+}
+
 export interface Schedule {
   id: number;
   automationId: number;
@@ -338,6 +357,8 @@ export const metricsApi = {
     api.get<JobMetrics>("/metrics", { params: { range } }),
   jobsPerHour: (range: MetricsRange = "24h") =>
     api.get<JobsPerHourBucket[]>("/metrics/jobs-per-hour", { params: { range } }),
+  automations: (range: MetricsRange = "24h") =>
+    api.get<AutomationHealth[]>("/metrics/automations", { params: { range } }),
 };
 
 // ── Schedules ─────────────────────────────────────────────────────────────────

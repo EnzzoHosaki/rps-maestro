@@ -67,6 +67,27 @@ type JobsPerHourBucket struct {
 	Failed    int       `json:"failed"`
 }
 
+// AutomationHealth é o agregado de saúde de UMA automação num período, usado
+// pela tabela "Saúde por automação" do dashboard. Counts/duração/manual×agendado
+// são do período pedido; LastStatus/LastRunAt e Recent são all-time (a última
+// execução importa independente do recorte).
+type AutomationHealth struct {
+	AutomationID int      `json:"automationId"`
+	Name         string   `json:"name"`
+	Total        int      `json:"total"`
+	Succeeded    int      `json:"succeeded"`
+	Failed       int      `json:"failed"`
+	Canceled     int      `json:"canceled"`
+	SuccessRate  float64  `json:"successRate"`
+	Manual       int      `json:"manual"`    // disparados por usuário (user_id != NULL)
+	Scheduled    int      `json:"scheduled"` // disparados por agendamento (user_id NULL)
+	DurationP50S *float64 `json:"durationP50S,omitempty"`
+	DurationP95S *float64 `json:"durationP95S,omitempty"`
+	LastStatus   *string  `json:"lastStatus,omitempty"`
+	LastRunAt    *time.Time `json:"lastRunAt,omitempty"`
+	Recent       []string `json:"recent"` // últimos N status, mais recente primeiro
+}
+
 // JobListFilter agrega os filtros suportados por JobRepository.List.
 type JobListFilter struct {
 	Status       *string
