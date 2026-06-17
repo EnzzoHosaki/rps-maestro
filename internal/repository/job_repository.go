@@ -412,3 +412,143 @@ func (r *PostgresJobRepository) GetJobsSeries(ctx context.Context, bucket string
 
 	return out, nil
 }
+
+// GetAutomationHealth agrega saúde por automação no período `interval` (string
+// de intervalo do Postgres vinda de whitelist no handler). Faz duas queries —
+// uma de agregação por automação no período, outra dos últimos `recentN` status
+// (all-time) — e mescla em Go por automation_id. LEFT JOIN preserva automações
+// sem jobs no período (vêm zeradas).
+func (r *PostgresJobRepository) GetAutomationHealth(ctx context.Context, interval string, recentN int) ([]models.AutomationHealth, error) {
+	const finished = "('completed','completed_no_invoices','failed','canceled')"
+
+	aggSQL := `
+		SELECT
+		    a.id, a.name,
+		    COUNT(j.id)                                                          AS total,
+		    COUNT(j.id) FILTER (WHERE j.status IN ('completed','completed_no_invoices')) AS succeeded,
+		    COUNT(j.id) FILTER (WHERE j.status = 'failed')                       AS failed,
+		    COUNT(j.id) FILTER (WHERE j.status = 'canceled')                     AS canceled,
+		    COUNT(j.id) FILTER (WHERE j.user_id IS NOT NULL)                     AS manual,
+		    COUNT(j.id) FILTER (WHERE j.user_id IS NULL)                         AS scheduled,
+		    percentile_cont(0.5) WITHIN GROUP (
+		        ORDER BY EXTRACT(EPOCH FROM (j.completed_at - j.started_at))
+		    ) FILTER (WHERE j.started_at IS NOT NULL)                            AS p50,
+		    percentile_cont(0.95) WITHIN GROUP (
+		        ORDER BY EXTRACT(EPOCH FROM (j.completed_at - j.started_at))
+		    ) FILTER (WHERE j.started_at IS NOT NULL)                            AS p95
+		FROM automations a
+		LEFT JOIN jobs j
+		    ON j.automation_id = a.id
+		   AND j.status IN ` + finished + `
+		   AND j.completed_at >= NOW() - $1::interval
+		GROUP BY a.id, a.name
+		ORDER BY a.name`
+
+	rows, err := r.db.Query(ctx, aggSQL, interval)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao agregar saúde por automação: %w", err)
+	}
+	defer rows.Close()
+
+	byID := make(map[int]*models.AutomationHealth)
+	out := make([]models.AutomationHealth, 0)
+	for rows.Next() {
+		var h models.AutomationHealth
+		if err := rows.Scan(
+			&h.AutomationID, &h.Name, &h.Total, &h.Succeeded, &h.Failed,
+			&h.Canceled, &h.Manual, &h.Scheduled, &h.DurationP50S, &h.DurationP95S,
+		); err != nil {
+			return nil, fmt.Errorf("erro ao escanear saúde por automação: %w", err)
+		}
+		finishedCount := h.Succeeded + h.Failed + h.Canceled
+		if finishedCount > 0 {
+			h.SuccessRate = float64(h.Succeeded) / float64(finishedCount)
+		}
+		h.Recent = []string{}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar saúde por automação: %w", err)
+	}
+	for i := range out {
+		byID[out[i].AutomationID] = &out[i]
+	}
+
+	// Últimos recentN status por automação (all-time), mais recente primeiro.
+	// O primeiro de cada automação também vira LastStatus/LastRunAt.
+	recentSQL := `
+		SELECT automation_id, status, completed_at
+		FROM (
+		    SELECT automation_id, status, completed_at,
+		           row_number() OVER (PARTITION BY automation_id ORDER BY completed_at DESC) AS rn
+		    FROM jobs
+		    WHERE completed_at IS NOT NULL AND status IN ` + finished + `
+		) t
+		WHERE rn <= $1
+		ORDER BY automation_id, completed_at DESC`
+
+	rrows, err := r.db.Query(ctx, recentSQL, recentN)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar runs recentes: %w", err)
+	}
+	defer rrows.Close()
+
+	for rrows.Next() {
+		var aid int
+		var status string
+		var completedAt time.Time
+		if err := rrows.Scan(&aid, &status, &completedAt); err != nil {
+			return nil, fmt.Errorf("erro ao escanear run recente: %w", err)
+		}
+		h := byID[aid]
+		if h == nil {
+			continue
+		}
+		if h.LastStatus == nil { // primeiro da automação = mais recente
+			s, t := status, completedAt
+			h.LastStatus = &s
+			h.LastRunAt = &t
+		}
+		h.Recent = append(h.Recent, status)
+	}
+	if err := rrows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar runs recentes: %w", err)
+	}
+
+	return out, nil
+}
+
+// GetErrorClassDistribution conta jobs falhos por categoria de erro no período
+// `interval` (string de intervalo do Postgres, vinda de whitelist no handler).
+// A categoria vem de result->>'error_class' (top-level, igual ao que a UI lê);
+// falha sem categoria cai em UNKNOWN. Ordenado por contagem desc.
+func (r *PostgresJobRepository) GetErrorClassDistribution(ctx context.Context, interval string) ([]models.ErrorClassCount, error) {
+	sql := `
+		SELECT
+		    COALESCE(NULLIF(result->>'error_class', ''), 'UNKNOWN') AS error_class,
+		    COUNT(*) AS count
+		FROM jobs
+		WHERE status = 'failed'
+		  AND completed_at >= NOW() - $1::interval
+		GROUP BY 1
+		ORDER BY count DESC, error_class`
+
+	rows, err := r.db.Query(ctx, sql, interval)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao agregar categorias de erro: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]models.ErrorClassCount, 0)
+	for rows.Next() {
+		var e models.ErrorClassCount
+		if err := rows.Scan(&e.ErrorClass, &e.Count); err != nil {
+			return nil, fmt.Errorf("erro ao escanear categoria de erro: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar categorias de erro: %w", err)
+	}
+	return out, nil
+}

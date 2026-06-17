@@ -43,6 +43,8 @@ type JobRepository interface {
 	IsCancellationRequested(ctx context.Context, id uuid.UUID) (bool, error)
 	GetMetrics(ctx context.Context, interval string) (*models.JobMetrics, error)
 	GetJobsSeries(ctx context.Context, bucket string, buckets int, step string) ([]models.JobsPerHourBucket, error)
+	GetAutomationHealth(ctx context.Context, interval string, recentN int) ([]models.AutomationHealth, error)
+	GetErrorClassDistribution(ctx context.Context, interval string) ([]models.ErrorClassCount, error)
 	GetLastParamsForUser(ctx context.Context, automationID, userID int) ([]byte, error)
 }
 
