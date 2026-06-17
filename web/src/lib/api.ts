@@ -33,7 +33,14 @@ api.interceptors.response.use(
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ParameterFieldType = "text" | "date" | "number" | "select" | "boolean" | "list";
+export type ParameterFieldType =
+  | "text"
+  | "date"
+  | "number"
+  | "select"
+  | "boolean"
+  | "list"
+  | "multiselect";
 
 export type ListItemType = "text" | "number";
 

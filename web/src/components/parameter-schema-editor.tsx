@@ -15,6 +15,7 @@ const TYPE_OPTIONS: { value: ParameterFieldType; label: string }[] = [
   { value: "select", label: "Seleção" },
   { value: "boolean", label: "Booleano" },
   { value: "list", label: "Lista" },
+  { value: "multiselect", label: "Multi-seleção" },
 ];
 
 const DATE_DDMMYYYY = /^\d{2}\/\d{2}\/\d{4}$/;
@@ -213,9 +214,13 @@ export function ParameterSchemaEditor({
               Remover
             </button>
           </div>
-          {f.type === "select" && (
+          {(f.type === "select" || f.type === "multiselect") && (
             <input
-              placeholder="Opções separadas por vírgula"
+              placeholder={
+                f.type === "multiselect"
+                  ? "Opções cadastradas, separadas por vírgula (ex: 4814, 6861)"
+                  : "Opções separadas por vírgula"
+              }
               value={(f.options ?? []).join(", ")}
               onChange={(e) =>
                 update(idx, {
@@ -228,7 +233,7 @@ export function ParameterSchemaEditor({
               className={`w-full ${inputCls}`}
             />
           )}
-          {f.type === "list" && (
+          {(f.type === "list" || f.type === "multiselect") && (
             <select
               value={f.itemType ?? "text"}
               onChange={(e) => update(idx, { itemType: e.target.value as ListItemType })}
