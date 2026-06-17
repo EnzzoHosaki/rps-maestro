@@ -16,14 +16,15 @@ import {
   type DocType,
   type DateField,
   type EmpresaAgg,
+  type Overview,
 } from "@/lib/xml-api";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
-import { EmptyRow } from "@/components/ui/empty-state";
-import { ErrorRow } from "@/components/ui/error-state";
+import { EmptyRow, EmptyState } from "@/components/ui/empty-state";
+import { ErrorRow, ErrorState } from "@/components/ui/error-state";
 
 const PAGE_SIZE = 50;
 
@@ -121,9 +122,10 @@ function XmlPageContent() {
   const [docFilter, setDocFilter] = useState<DocType | "all">(
     () => (sp.get("doc_type") as DocType) || "all"
   );
-  const [view, setView] = useState<"notas" | "empresas">(
-    () => (sp.get("view") === "empresas" ? "empresas" : "notas")
-  );
+  const [view, setView] = useState<"notas" | "empresas" | "painel">(() => {
+    const v = sp.get("view");
+    return v === "empresas" || v === "painel" ? v : "notas";
+  });
   const [q, setQ] = useState(() => sp.get("q") ?? "");
   const [empresa, setEmpresa] = useState(() => sp.get("empresa") ?? "");
   const [cnpj, setCnpj] = useState(() => sp.get("cnpj") ?? "");
@@ -148,7 +150,7 @@ function XmlPageContent() {
   // base pro drill-down por empresa do Bloco C1.
   useEffect(() => {
     const p = new URLSearchParams();
-    if (view === "empresas") p.set("view", "empresas");
+    if (view === "empresas" || view === "painel") p.set("view", view);
     if (statusFilter !== "all") p.set("status", statusFilter);
     if (docFilter !== "all") p.set("doc_type", docFilter);
     if (q) p.set("q", q);
@@ -298,15 +300,15 @@ function XmlPageContent() {
         </div>
       )}
 
-      {/* Toggle de visão: Notas (lista) × Empresas (agregado) */}
+      {/* Toggle de visão: Notas (lista) × Empresas (agregado) × Painel (gráficos) */}
       <div className="flex gap-1.5">
-        {(["notas", "empresas"] as const).map((v) => (
+        {(["notas", "empresas", "painel"] as const).map((v) => (
           <button
             key={v}
             onClick={() => {
-              // ir pra aba Empresas zera o filtro de empresa (ele só vale na
-              // lista de Notas; deixar grudado confunde ao voltar).
-              if (v === "empresas") clearEmpresaFilter();
+              // sair da lista de Notas zera o filtro de empresa (ele só vale lá;
+              // deixar grudado confunde ao voltar).
+              if (v !== "notas") clearEmpresaFilter();
               setView(v);
             }}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
@@ -315,12 +317,25 @@ function XmlPageContent() {
                 : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
             }`}
           >
-            {v === "notas" ? "Notas" : "Empresas"}
+            {v === "notas" ? "Notas" : v === "empresas" ? "Empresas" : "Painel"}
           </button>
         ))}
       </div>
 
-      {view === "empresas" ? (
+      {view === "painel" ? (
+        <PainelView
+          ov={ov}
+          loading={overview.isLoading}
+          error={overview.isError}
+          onRetry={() => overview.refetch()}
+          onPickStatus={(s) => {
+            clearEmpresaFilter();
+            setView("notas");
+            reset(setStatusFilter)(s);
+          }}
+          onDrillEmpresa={drillToEmpresa}
+        />
+      ) : view === "empresas" ? (
         <EmpresasView onDrill={drillToEmpresa} />
       ) : (
         <>
@@ -502,6 +517,259 @@ function XmlPageContent() {
       )}
 
       {selected && <NotaDetailModal chave={selected} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+// ── Painel (gráficos) ─────────────────────────────────────────────────────────
+
+// Ordem das barras de status no painel (do início ao fim do pipeline + ramos
+// terminais). Mesmos rótulos/cores da lista de notas pra leitura consistente.
+const PAINEL_STATUSES: NotaStatus[] = [
+  "arrived",
+  "synced",
+  "pending_import",
+  "imported",
+  "import_ignored",
+  "stuck",
+  "lost",
+];
+
+// Cor sólida da barra por status (o badge usa XML_STATUS_STYLE; aqui é só o
+// preenchimento da barra de proporção).
+const STATUS_BAR_FILL: Record<NotaStatus, string> = {
+  arrived: "bg-yellow-400",
+  synced: "bg-sky-400",
+  pending_import: "bg-amber-400",
+  imported: "bg-rps-olive-dark",
+  import_ignored: "bg-gray-400 dark:bg-gray-600",
+  stuck: "bg-orange-400",
+  lost: "bg-red-500",
+};
+
+function statusCount(ov: Overview, s: NotaStatus): number {
+  switch (s) {
+    case "arrived":
+      return ov.arrived;
+    case "synced":
+      return ov.synced;
+    case "pending_import":
+      return ov.pending_import;
+    case "imported":
+      return ov.imported;
+    case "import_ignored":
+      return ov.import_ignored;
+    case "stuck":
+      return ov.stuck;
+    case "lost":
+      return ov.lost;
+  }
+}
+
+function PainelCard({
+  title,
+  className,
+  children,
+}: {
+  title: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm ${className ?? ""}`}
+    >
+      <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function LatencyRow({ label, p50, p95 }: { label: string; p50?: number; p95?: number }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium text-gray-600 dark:text-gray-400">{label}</p>
+      <div className="flex gap-4 text-sm text-gray-500">
+        <span>
+          p50 <b className="text-gray-800 dark:text-gray-200">{fmtDur(p50)}</b>
+        </span>
+        <span>
+          p95 <b className="text-gray-800 dark:text-gray-200">{fmtDur(p95)}</b>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone?: "success";
+}) {
+  return (
+    <div className="rounded border border-gray-200 dark:border-gray-800 p-2">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p
+        className={`text-lg font-bold ${tone === "success" ? "text-rps-olive-dark" : "text-gray-900 dark:text-gray-100"}`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// Painel: visão de gráficos sobre o snapshot atual do tracker (sem série
+// temporal — isso depende de endpoint novo no rps-xml-tracker). Três blocos:
+// distribuição por status (barras clicáveis → filtra Notas), latências p50/p95
+// e as empresas com mais notas pendentes (barras clicáveis → drill-down).
+function PainelView({
+  ov,
+  loading,
+  error,
+  onRetry,
+  onPickStatus,
+  onDrillEmpresa,
+}: {
+  ov?: Overview;
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
+  onPickStatus: (s: NotaStatus) => void;
+  onDrillEmpresa: (row: EmpresaAgg) => void;
+}) {
+  const empresas = useQuery({
+    queryKey: ["xml", "empresas", "painel"],
+    queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+
+  const counts = ov
+    ? PAINEL_STATUSES.map((s) => ({ status: s, count: statusCount(ov, s) }))
+    : [];
+  const maxCount = Math.max(1, ...counts.map((c) => c.count));
+  const totalNotas = counts.reduce((a, c) => a + c.count, 0);
+
+  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import + e.stuck;
+  const topEmpresas = [...(empresas.data?.items ?? [])]
+    .filter((e) => e.codigo_empresa != null && pend(e) > 0)
+    .sort((a, b) => pend(b) - pend(a))
+    .slice(0, 10);
+  const maxPend = Math.max(1, ...topEmpresas.map(pend));
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <PainelCard title="Distribuição por status">
+        {error ? (
+          <ErrorState onRetry={onRetry} />
+        ) : loading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : totalNotas === 0 ? (
+          <EmptyState className="py-4">Nenhuma nota rastreada.</EmptyState>
+        ) : (
+          <>
+            <ul className="space-y-2">
+              {counts.map((c) => (
+                <li key={c.status}>
+                  <button
+                    onClick={() => onPickStatus(c.status)}
+                    className="flex w-full items-center gap-3 text-left"
+                    title="Filtrar notas por este status"
+                  >
+                    <Badge
+                      size="xs"
+                      className={`${XML_STATUS_STYLE[c.status]} w-44 shrink-0 truncate text-center`}
+                    >
+                      {XML_STATUS_LABEL[c.status]}
+                    </Badge>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                      <div
+                        className={`h-full rounded-full ${STATUS_BAR_FILL[c.status]}`}
+                        style={{ width: `${(c.count / maxCount) * 100}%` }}
+                      />
+                    </div>
+                    <span className="w-12 shrink-0 text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
+                      {c.count}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs text-gray-500">
+              {totalNotas} notas rastreadas · clique numa barra pra filtrar.
+            </p>
+          </>
+        )}
+      </PainelCard>
+
+      <PainelCard title="Latências de processamento (30d)">
+        {error ? (
+          <ErrorState onRetry={onRetry} />
+        ) : loading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <div className="space-y-4">
+            <LatencyRow
+              label="Chegada → Sincronização"
+              p50={ov?.lat_arrival_sync_p50_s}
+              p95={ov?.lat_arrival_sync_p95_s}
+            />
+            <LatencyRow
+              label="Sincronização → Importação"
+              p50={ov?.lat_sync_import_p50_s}
+              p95={ov?.lat_sync_import_p95_s}
+            />
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <MiniStat label="Em trânsito" value={ov?.in_transit ?? 0} />
+              <MiniStat label="Importadas hoje" value={ov?.imported_today ?? 0} tone="success" />
+            </div>
+            <p className="text-xs text-gray-400">
+              Percentis das transições dos últimos 30 dias; exclui backfill histórico.
+            </p>
+          </div>
+        )}
+      </PainelCard>
+
+      <PainelCard title="Empresas com mais notas pendentes" className="lg:col-span-2">
+        {empresas.isError ? (
+          <ErrorState onRetry={() => empresas.refetch()} />
+        ) : empresas.isLoading ? (
+          <Skeleton className="h-48 w-full" />
+        ) : topEmpresas.length === 0 ? (
+          <EmptyState className="py-4">Nenhuma empresa com notas pendentes. 🎉</EmptyState>
+        ) : (
+          <ul className="space-y-2">
+            {topEmpresas.map((e) => (
+              <li key={`${e.codigo_empresa}-${e.codigo_filial ?? "x"}`}>
+                <button
+                  onClick={() => onDrillEmpresa(e)}
+                  className="flex w-full items-center gap-3 text-left"
+                  title="Ver notas desta empresa"
+                >
+                  <span
+                    className="w-56 shrink-0 truncate text-sm text-gray-700 dark:text-gray-300"
+                    title={e.nome_empresa}
+                  >
+                    {e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`}
+                  </span>
+                  <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                    <div
+                      className="h-full rounded-full bg-amber-400"
+                      style={{ width: `${(pend(e) / maxPend) * 100}%` }}
+                    />
+                  </div>
+                  <span className="w-10 shrink-0 text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
+                    {pend(e)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PainelCard>
     </div>
   );
 }

@@ -33,7 +33,7 @@ function defaultModel(mode: FrequencyMode, t: { hour: number; minute: number }):
     case "weekly":
       return { mode: "weekly", days: [1], hour: t.hour, minute: t.minute };
     case "monthly":
-      return { mode: "monthly", day: 1, hour: t.hour, minute: t.minute };
+      return { mode: "monthly", days: [1], lastDay: false, hour: t.hour, minute: t.minute };
   }
 }
 
@@ -182,20 +182,54 @@ export function CronBuilder({
       )}
 
       {!isCustom && model.mode === "monthly" && (
-        <div className="flex items-end gap-2">
+        <div className="space-y-2">
           <div>
-            <label className={labelCls}>Dia do mês</label>
-            <select
-              value={model.day}
-              onChange={(e) => emit({ ...model, day: parseInt(e.target.value, 10) })}
-              className={fieldCls}
+            <span className={labelCls}>Dias do mês</span>
+            <div className="grid grid-cols-7 gap-1 sm:grid-cols-10">
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
+                const on = model.days.includes(d);
+                return (
+                  <button
+                    type="button"
+                    key={d}
+                    onClick={() => {
+                      const days = on
+                        ? model.days.filter((x) => x !== d)
+                        : [...model.days, d];
+                      // mantém ao menos uma seleção (dia ou "último dia")
+                      if (days.length === 0 && !model.lastDay) return;
+                      emit({ ...model, days });
+                    }}
+                    className={`rounded py-1 text-xs font-medium transition-colors ${
+                      on
+                        ? "bg-rps-olive-dark text-white"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const lastDay = !model.lastDay;
+                // não deixa zerar tudo (nem dia nem último dia)
+                if (!lastDay && model.days.length === 0) return;
+                emit({ ...model, lastDay });
+              }}
+              className={`mt-1 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                model.lastDay
+                  ? "bg-rps-olive-dark text-white"
+                  : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+              }`}
             >
-              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              Último dia do mês
+            </button>
+            <p className="mt-1 text-xs text-gray-500">
+              Marque um ou mais dias (ex.: 8, 15, 22) e/ou o último dia do mês.
+            </p>
           </div>
           <div>
             <label className={labelCls}>Horário</label>

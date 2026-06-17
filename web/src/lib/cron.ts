@@ -13,7 +13,7 @@ export type CronModel =
   | { mode: "everyN"; unit: "minute" | "hour"; n: number }
   | { mode: "daily"; hour: number; minute: number }
   | { mode: "weekly"; days: number[]; hour: number; minute: number }
-  | { mode: "monthly"; day: number; hour: number; minute: number };
+  | { mode: "monthly"; days: number[]; lastDay: boolean; hour: number; minute: number };
 
 // Domingo = 0, … Sábado = 6 (convenção cron padrão / robfig).
 export const WEEKDAYS = [
@@ -114,14 +114,34 @@ export function parseCron(expr: string): CronModel | null {
     return { mode: "weekly", days, hour: h, minute: m };
   }
 
-  // Mensalmente: m h <dia> * *
+  // Mensalmente: m h <dia(s)> * * — aceita lista "8,15,22" e o token L
+  // (último dia do mês), ex.: "8,15,22,L".
   if (!isStar(dom) && isStar(dow)) {
-    const day = asInt(dom);
-    if (day === null || day < 1 || day > 31) return null;
-    return { mode: "monthly", day, hour: h, minute: m };
+    const parsed = parseMonthDays(dom);
+    if (!parsed) return null;
+    return { mode: "monthly", days: parsed.days, lastDay: parsed.lastDay, hour: h, minute: m };
   }
 
   return null;
+}
+
+// Expande "8", "8,15,22", "8,15,L" em { dias do mês (1-31), lastDay }.
+// Não aceita ranges (dias do mês não leem bem como "8-22").
+function parseMonthDays(field: string): { days: number[]; lastDay: boolean } | null {
+  const days = new Set<number>();
+  let lastDay = false;
+  for (const part of field.split(",")) {
+    if (part === "L" || part === "l") {
+      lastDay = true;
+      continue;
+    }
+    if (!/^\d+$/.test(part)) return null;
+    const d = parseInt(part, 10);
+    if (d < 1 || d > 31) return null;
+    days.add(d);
+  }
+  if (days.size === 0 && !lastDay) return null;
+  return { days: [...days].sort((a, b) => a - b), lastDay };
 }
 
 export function buildCron(model: CronModel): string {
@@ -134,8 +154,12 @@ export function buildCron(model: CronModel): string {
       return `${model.minute} ${model.hour} * * *`;
     case "weekly":
       return `${model.minute} ${model.hour} * * ${buildDaysField(model.days)}`;
-    case "monthly":
-      return `${model.minute} ${model.hour} ${model.day} * *`;
+    case "monthly": {
+      const parts = [...new Set(model.days)].sort((a, b) => a - b).map(String);
+      if (model.lastDay) parts.push("L");
+      if (parts.length === 0) parts.push("1"); // guarda: nunca emitir campo vazio
+      return `${model.minute} ${model.hour} ${parts.join(",")} * *`;
+    }
   }
 }
 

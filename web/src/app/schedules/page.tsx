@@ -144,6 +144,14 @@ function ScheduleForm({
                   <li>
                     <code className="font-mono">{"{{tomorrow}}"}</code> → amanhã
                   </li>
+                  <li>
+                    <code className="font-mono">{"{{prev_run}}"}</code> → data da execução
+                    {" "}agendada anterior (e <code className="font-mono">{"{{prev_run+1}}"}</code>/
+                    <code className="font-mono">{"{{prev_run-1}}"}</code>). Ex.: pra pegar só o
+                    {" "}período desde a última execução, use{" "}
+                    <code className="font-mono">{"{{prev_run+1}}"}</code> até{" "}
+                    <code className="font-mono">{"{{yesterday}}"}</code>.
+                  </li>
                 </ul>
                 <p className="mt-1">Formato resolvido: <span className="font-mono">dd/MM/yyyy</span>.</p>
               </div>
@@ -177,8 +185,12 @@ export default function SchedulesPage() {
   const confirm = useConfirm();
   const qc = useQueryClient();
   const { isAdmin } = useAuth();
-  const [creating, setCreating] = useState(false);
+  // createSeed = valores iniciais do modal de criação (null = fechado). "Novo"
+  // abre vazio; "Duplicar" abre pré-preenchido com os dados de um agendamento.
+  const [createSeed, setCreateSeed] = useState<FormData | null>(null);
   const [editing, setEditing] = useState<Schedule | null>(null);
+
+  const emptyForm: FormData = { automationId: 0, cronExpression: "", isEnabled: true, parameters: {} };
 
   const { data: schedules, isLoading, isError, refetch } = useQuery({
     queryKey: ["schedules"],
@@ -201,7 +213,7 @@ export default function SchedulesPage() {
     mutationFn: (d: FormData) => schedulesApi.create(toPayload(d)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["schedules"] });
-      setCreating(false);
+      setCreateSeed(null);
     },
   });
 
@@ -239,7 +251,7 @@ export default function SchedulesPage() {
     <div className="space-y-4">
       {isAdmin && (
         <div className="flex justify-end">
-          <Button onClick={() => setCreating(true)}>+ Novo agendamento</Button>
+          <Button onClick={() => setCreateSeed(emptyForm)}>+ Novo agendamento</Button>
         </div>
       )}
 
@@ -298,6 +310,21 @@ export default function SchedulesPage() {
                       Editar
                     </Button>
                     <Button
+                      variant="secondary"
+                      size="sm"
+                      title="Criar um novo agendamento a partir deste"
+                      onClick={() =>
+                        setCreateSeed({
+                          automationId: s.automationId,
+                          cronExpression: s.cronExpression,
+                          isEnabled: s.isEnabled,
+                          parameters: (s.parameters as Record<string, unknown>) ?? {},
+                        })
+                      }
+                    >
+                      Duplicar
+                    </Button>
+                    <Button
                       variant="danger"
                       size="sm"
                       onClick={async () => {
@@ -325,10 +352,10 @@ export default function SchedulesPage() {
         </TBody>
       </Table>
 
-      {creating && (
-        <Modal title="Novo agendamento" onClose={() => setCreating(false)} wide>
+      {createSeed && (
+        <Modal title="Novo agendamento" onClose={() => setCreateSeed(null)} wide>
           <ScheduleForm
-            initial={{ automationId: 0, cronExpression: "", isEnabled: true, parameters: {} }}
+            initial={createSeed}
             automations={autoList}
             onSubmit={(d) => create.mutate(d)}
             loading={create.isPending}

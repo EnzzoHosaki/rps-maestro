@@ -8,16 +8,17 @@ import (
 
 	"github.com/EnzzoHosaki/rps-maestro/internal/models"
 	"github.com/EnzzoHosaki/rps-maestro/internal/repository"
+	"github.com/EnzzoHosaki/rps-maestro/internal/scheduler"
 	"github.com/gin-gonic/gin"
-	"github.com/robfig/cron/v3"
 )
 
 // validateCron rejeita expressões cron inválidas antes de persistir, usando o
-// mesmo parser do scheduler (5 campos padrão). Sem isso, uma expressão inválida
-// seria salva e só falharia silenciosamente no Reload, deixando o agendamento
-// cadastrado mas nunca executado.
+// mesmo parser do scheduler (scheduler.ParseSchedule — 5 campos padrão + `L`
+// pro último dia do mês). Sem isso, uma expressão inválida seria salva e só
+// falharia silenciosamente no Reload, deixando o agendamento cadastrado mas
+// nunca executado.
 func validateCron(expr string) error {
-	_, err := cron.ParseStandard(expr)
+	_, err := scheduler.ParseSchedule(expr)
 	return err
 }
 

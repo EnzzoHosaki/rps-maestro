@@ -7,9 +7,10 @@ import (
 )
 
 // datePlaceholderRe casa tokens como {{today}}, {{yesterday}}, {{tomorrow}},
-// {{today-N}} e {{today+N}} (apenas o keyword `today` aceita offset; os
-// aliases yesterday/tomorrow são equivalentes a today-1 / today+1).
-var datePlaceholderRe = regexp.MustCompile(`\{\{(today|yesterday|tomorrow)([+-]\d+)?\}\}`)
+// {{prev_run}} e suas variantes com offset ({{today-N}}, {{prev_run+1}}…).
+// `prev_run` = data da execução AGENDADA anterior (calculada do cron do próprio
+// agendamento); útil pra janelas tipo "{{prev_run+1}} a {{yesterday}}".
+var datePlaceholderRe = regexp.MustCompile(`\{\{(today|yesterday|tomorrow|prev_run)([+-]\d+)?\}\}`)
 
 // monthPlaceholderRe casa tokens ancorados no mês corrente da execução:
 // {{first_of_month}}, {{last_of_month}}, {{first_of_last_month}},
@@ -37,6 +38,8 @@ const dateLayoutBR = "02/01/2006"
 //	{{tomorrow}}              → amanhã (alias de {{today+1}})
 //	{{today-N}}               → N dias antes de hoje (N inteiro)
 //	{{today+N}}               → N dias depois de hoje
+//	{{prev_run}}              → data da execução agendada anterior
+//	{{prev_run+N}} / -N       → N dias depois/antes da execução anterior
 //	{{first_of_month}}        → 1º dia do mês corrente
 //	{{last_of_month}}         → último dia do mês corrente
 //	{{first_of_last_month}}   → 1º dia do mês anterior
@@ -44,46 +47,56 @@ const dateLayoutBR = "02/01/2006"
 //
 // Combinações em uma mesma string são suportadas: "{{today-2}} a {{yesterday}}"
 // vira "17/05/2026 a 18/05/2026" se hoje for 19/05/2026.
-func ExpandDatePlaceholders(params map[string]interface{}, now time.Time) map[string]interface{} {
+// prevRun é a data da execução agendada anterior (zero quando indisponível —
+// ex.: execução manual sem contexto de cron). Quando zero, {{prev_run}} cai
+// pra `now` como melhor esforço, pra nunca vazar o token literal pro worker.
+func ExpandDatePlaceholders(params map[string]interface{}, now time.Time, prevRun time.Time) map[string]interface{} {
 	if params == nil {
 		return nil
 	}
 	out := make(map[string]interface{}, len(params))
 	for k, v := range params {
-		out[k] = expandValue(v, now)
+		out[k] = expandValue(v, now, prevRun)
 	}
 	return out
 }
 
-func expandValue(v interface{}, now time.Time) interface{} {
+func expandValue(v interface{}, now time.Time, prevRun time.Time) interface{} {
 	switch x := v.(type) {
 	case string:
-		return expandString(x, now)
+		return expandString(x, now, prevRun)
 	case []interface{}:
 		out := make([]interface{}, len(x))
 		for i, item := range x {
-			out[i] = expandValue(item, now)
+			out[i] = expandValue(item, now, prevRun)
 		}
 		return out
 	case map[string]interface{}:
-		return ExpandDatePlaceholders(x, now)
+		return ExpandDatePlaceholders(x, now, prevRun)
 	default:
 		return v
 	}
 }
 
-func expandString(s string, now time.Time) string {
+func expandString(s string, now time.Time, prevRun time.Time) string {
 	s = datePlaceholderRe.ReplaceAllStringFunc(s, func(match string) string {
 		sub := datePlaceholderRe.FindStringSubmatch(match)
 		keyword := sub[1]
 		offsetStr := sub[2]
 
+		// prev_run tem base própria (a execução anterior); os demais são
+		// relativos a hoje.
+		base := now
 		days := 0
 		switch keyword {
 		case "yesterday":
 			days = -1
 		case "tomorrow":
 			days = 1
+		case "prev_run":
+			if !prevRun.IsZero() {
+				base = prevRun
+			}
 		}
 		if offsetStr != "" {
 			n, err := strconv.Atoi(offsetStr)
@@ -92,7 +105,7 @@ func expandString(s string, now time.Time) string {
 			}
 		}
 
-		return now.AddDate(0, 0, days).Format(dateLayoutBR)
+		return base.AddDate(0, 0, days).Format(dateLayoutBR)
 	})
 
 	s = monthPlaceholderRe.ReplaceAllStringFunc(s, func(match string) string {
