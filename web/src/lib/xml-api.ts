@@ -113,6 +113,34 @@ export interface EmpresaAgg {
 
 export type DateField = "emissao" | "arrived" | "synced" | "imported";
 
+// Série temporal do tracker (GET /metrics/timeseries). Contagens são "fluxo por
+// evento no dia" (arrived = chegaram naquele dia, etc.); latências são percentis
+// por coorte do evento de origem (chegada p/ arrival→sync, sync p/ sync→import).
+// Latências vêm nullable: null = sem transição completa no dia (vira gap na
+// linha). Os dias mais recentes podem ser parciais (viés de censura à direita:
+// notas que chegaram mas ainda não sincronizaram saem do percentil).
+export type TimeseriesRange = "7d" | "30d" | "90d";
+export type TimeseriesBucket = "day" | "week";
+
+export interface TimeseriesPoint {
+  date: string; // YYYY-MM-DD no fuso local (America/Sao_Paulo); week = segunda-feira
+  arrived: number;
+  synced: number;
+  imported: number;
+  import_ignored: number;
+  lat_arrival_sync_p50_s: number | null;
+  lat_arrival_sync_p95_s: number | null;
+  lat_sync_import_p50_s: number | null;
+  lat_sync_import_p95_s: number | null;
+}
+
+export interface Timeseries {
+  range: TimeseriesRange;
+  bucket: TimeseriesBucket;
+  tz: string;
+  buckets: TimeseriesPoint[];
+}
+
 export interface NotaListFilter {
   status?: NotaStatus;
   doc_type?: DocType;
@@ -139,6 +167,8 @@ export const notasApi = {
 
 export const xmlMetricsApi = {
   overview: () => xmlApi.get<Overview>("/metrics/overview"),
+  timeseries: (range: TimeseriesRange = "30d", bucket: TimeseriesBucket = "day") =>
+    xmlApi.get<Timeseries>("/metrics/timeseries", { params: { range, bucket } }),
 };
 
 export const empresasApi = {
