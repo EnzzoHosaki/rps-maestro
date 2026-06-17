@@ -1,13 +1,133 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import type { ParameterField, ParameterSchema } from "@/lib/api";
 
 type Values = Record<string, string | boolean>;
 
 const inputCls =
   "w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500";
+
+// Quebra o valor armazenado (string "4814, 6861") na lista de itens
+// selecionados, preservando ordem e sem duplicatas.
+function splitSelected(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[,\n]/)) {
+    const v = part.trim();
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+// Campo de multi-seleção: chips para as opções cadastradas (ex.: códigos de
+// loja) + um input pra adicionar códigos fora da lista. O valor é guardado
+// como string separada por vírgula e coagido a array (itemType) no submit —
+// mesma maquinaria do tipo "list".
+function MultiSelectField({
+  field,
+  value,
+  onChange,
+}: {
+  field: ParameterField;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [custom, setCustom] = useState("");
+  const selected = splitSelected(value);
+  const selectedSet = new Set(selected);
+  const options = field.options ?? [];
+  const extra = selected.filter((s) => !options.includes(s));
+
+  const toggle = (opt: string) => {
+    const next = selectedSet.has(opt)
+      ? selected.filter((s) => s !== opt)
+      : [...selected, opt];
+    onChange(next.join(", "));
+  };
+
+  const addCustom = () => {
+    const v = custom.trim();
+    if (v && !selectedSet.has(v)) onChange([...selected, v].join(", "));
+    setCustom("");
+  };
+
+  return (
+    <div className="space-y-2 rounded border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800">
+      {options.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {options.map((opt) => {
+            const on = selectedSet.has(opt);
+            return (
+              <button
+                type="button"
+                key={opt}
+                onClick={() => toggle(opt)}
+                aria-pressed={on}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  on
+                    ? "bg-rps-olive-dark text-white"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
+                }`}
+              >
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {extra.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {extra.map((v) => (
+            <span
+              key={v}
+              className="inline-flex items-center gap-1 rounded bg-rps-sage-soft px-2 py-1 text-xs text-rps-olive-dark"
+            >
+              {v}
+              <button
+                type="button"
+                onClick={() => toggle(v)}
+                aria-label={`Remover ${v}`}
+                className="hover:text-rps-olive-darker"
+              >
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addCustom();
+            }
+          }}
+          placeholder={field.placeholder ?? "Adicionar código não cadastrado"}
+          className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+        />
+        <button
+          type="button"
+          onClick={addCustom}
+          disabled={!custom.trim()}
+          className="shrink-0 rounded bg-gray-100 px-3 text-xs text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+        >
+          Adicionar
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function isoToBr(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
@@ -28,7 +148,8 @@ function initialDisplay(field: ParameterField, initial: unknown): string | boole
     return field.type === "boolean" ? false : "";
   }
   if (field.type === "boolean") return Boolean(initial);
-  if (field.type === "list" && Array.isArray(initial)) return initial.join(", ");
+  if ((field.type === "list" || field.type === "multiselect") && Array.isArray(initial))
+    return initial.join(", ");
   // Placeholder dinâmico chega como string — passa direto, sem tentar
   // converter pra ISO/etc. O usuário verá o {{...}} no input de texto.
   if (looksLikePlaceholder(initial)) return String(initial);
@@ -58,7 +179,7 @@ function coerce(field: ParameterField, raw: string | boolean): unknown {
     return Number.isNaN(n) ? s : n;
   }
   if (field.type === "date") return isoToBr(s);
-  if (field.type === "list") return parseList(s, field.itemType);
+  if (field.type === "list" || field.type === "multiselect") return parseList(s, field.itemType);
   return s;
 }
 
@@ -177,6 +298,16 @@ export function DynamicParameterForm({
             </option>
           ))}
         </select>
+      );
+    }
+
+    if (f.type === "multiselect") {
+      return (
+        <MultiSelectField
+          field={f}
+          value={String(values[f.name] ?? "")}
+          onChange={(next) => set(f.name, next)}
+        />
       );
     }
 
