@@ -9,15 +9,21 @@ import {
   automationsApi,
   jobsApi,
   metricsApi,
+  schedulesApi,
   type Job,
+  type JobStatus,
   type JobsPerHourBucket,
   type MetricsRange,
+  type AutomationHealth,
+  type ErrorClassCount,
 } from "@/lib/api";
-import { STATUS_LABEL, STATUS_STYLE } from "@/lib/jobs";
+import { describeCron } from "@/lib/cron";
+import { STATUS_LABEL, STATUS_STYLE, errorClassLabel, errorClassStyle } from "@/lib/jobs";
 import { JobPanel } from "@/components/job-panel";
-import { Skeleton } from "@/components/skeleton";
+import { Skeleton, SkeletonRow } from "@/components/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/ui/empty-state";
+import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
+import { EmptyState, EmptyRow } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 
 function StatCard({
@@ -176,6 +182,160 @@ function ChartLegend() {
   );
 }
 
+// Distribuição de falhas por categoria de erro (D3) — barras horizontais com
+// chip colorido + contagem. Some quando não há falha no período.
+function ErrorClassBreakdown({ range }: { range: MetricsRange }) {
+  const q = useQuery({
+    queryKey: ["metrics", "errorClasses", range],
+    queryFn: () => metricsApi.errorClasses(range).then((r) => r.data),
+    refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
+  });
+  const rows: ErrorClassCount[] = q.data ?? [];
+  const max = Math.max(1, ...rows.map((r) => r.count));
+
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">Falhas por categoria</h2>
+      {q.isError ? (
+        <ErrorState onRetry={() => q.refetch()} />
+      ) : q.isLoading ? (
+        <Skeleton className="h-24 w-full" />
+      ) : rows.length === 0 ? (
+        <EmptyState className="py-4">Nenhuma falha no período. 🎉</EmptyState>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.errorClass} className="flex items-center gap-3">
+              <Badge size="xs" className={`${errorClassStyle(r.errorClass)} w-40 shrink-0 truncate text-center`}>
+                {errorClassLabel(r.errorClass)}
+              </Badge>
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                <div className="h-full rounded-full bg-red-400" style={{ width: `${(r.count / max) * 100}%` }} />
+              </div>
+              <span className="w-8 shrink-0 text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
+                {r.count}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function fmtDuration(s?: number): string {
+  if (s == null) return "—";
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.round(s / 60)}min`;
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return m ? `${h}h${m}min` : `${h}h`;
+}
+
+// Cor do "pontinho" de um run recente na tabela de saúde.
+function dotClass(status: JobStatus): string {
+  if (status === "completed" || status === "completed_no_invoices") return "bg-rps-sage";
+  if (status === "failed") return "bg-red-400";
+  return "bg-gray-300 dark:bg-gray-600"; // canceled / outros
+}
+
+// Tabela "Saúde por automação" — uma linha por automação no período: taxa de
+// sucesso, falhas, duração p50/p95, split manual×agendado, últimos runs como
+// pontinhos e a última execução. onPick abre o JobPanel do último run.
+function AutomationHealthTable({ range }: { range: MetricsRange }) {
+  const q = useQuery({
+    queryKey: ["metrics", "automations", range],
+    queryFn: () => metricsApi.automations(range).then((r) => r.data),
+    refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
+  });
+  const rows = q.data ?? [];
+
+  return (
+    <Table>
+      <THead>
+        <Th>Automação</Th>
+        <Th className="text-right">Sucesso</Th>
+        <Th className="text-right">Runs</Th>
+        <Th className="text-right">Falhas</Th>
+        <Th className="text-right">Duração p50/p95</Th>
+        <Th>Últimos</Th>
+        <Th>Última execução</Th>
+      </THead>
+      <TBody>
+        {q.isLoading && Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} cols={7} />)}
+        {!q.isLoading && rows.length === 0 && (
+          <EmptyRow colSpan={7}>Nenhuma automação cadastrada.</EmptyRow>
+        )}
+        {rows.map((a: AutomationHealth) => {
+          const rateTone =
+            a.total === 0
+              ? "text-gray-400"
+              : a.successRate >= 0.9
+                ? "text-rps-olive-dark"
+                : a.successRate >= 0.6
+                  ? "text-yellow-700 dark:text-yellow-500"
+                  : "text-red-600 dark:text-red-400";
+          return (
+            <Tr key={a.automationId}>
+              <Td className="font-medium text-gray-900 dark:text-gray-100">{a.name}</Td>
+              <Td className={`text-right font-semibold ${rateTone}`}>
+                {a.total === 0 ? "—" : `${Math.round(a.successRate * 100)}%`}
+              </Td>
+              <Td className="text-right text-gray-700 dark:text-gray-300">
+                {a.total}
+                {a.total > 0 && (
+                  <span className="ml-1 text-xs text-gray-400" title="manual / agendado">
+                    ({a.manual}m·{a.scheduled}a)
+                  </span>
+                )}
+              </Td>
+              <Td className="text-right">
+                {a.failed > 0 ? (
+                  <span className="font-medium text-red-600 dark:text-red-400">{a.failed}</span>
+                ) : (
+                  <span className="text-gray-300 dark:text-gray-600">0</span>
+                )}
+              </Td>
+              <Td className="text-right text-xs text-gray-500">
+                {fmtDuration(a.durationP50S)} / {fmtDuration(a.durationP95S)}
+              </Td>
+              <Td>
+                <div className="flex items-center gap-0.5">
+                  {a.recent.length === 0 && <span className="text-xs text-gray-400">—</span>}
+                  {/* recent vem mais-recente-primeiro; inverte pra ler como linha do tempo */}
+                  {[...a.recent].reverse().map((s, i) => (
+                    <span
+                      key={i}
+                      className={`inline-block h-2.5 w-2.5 rounded-sm ${dotClass(s)}`}
+                      title={STATUS_LABEL[s]}
+                    />
+                  ))}
+                </div>
+              </Td>
+              <Td>
+                {a.lastStatus ? (
+                  <div className="flex items-center gap-2">
+                    <Badge className={STATUS_STYLE[a.lastStatus]}>{STATUS_LABEL[a.lastStatus]}</Badge>
+                    {a.lastRunAt && (
+                      <span className="text-xs text-gray-500">
+                        {formatDistanceToNow(new Date(a.lastRunAt), { locale: ptBR, addSuffix: true })}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-gray-400">nunca executou</span>
+                )}
+              </Td>
+            </Tr>
+          );
+        })}
+      </TBody>
+    </Table>
+  );
+}
+
 export default function DashboardPage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [range, setRange] = useState<MetricsRange>("24h");
@@ -231,6 +391,23 @@ export default function DashboardPage() {
       jobsApi.list({ status: "failed", limit: 8 }).then((r) => r.data.items),
     refetchInterval: 30_000,
   });
+
+  // Próximas execuções agendadas — o dashboard mostra o que VAI acontecer,
+  // não só o que aconteceu. next_run_at vem do scheduler.
+  const { data: schedules = [], isError: schedulesError, refetch: refetchSchedules } = useQuery({
+    queryKey: ["schedules"],
+    queryFn: () => schedulesApi.list().then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+
+  const upcoming = useMemo(
+    () =>
+      schedules
+        .filter((s) => s.isEnabled && s.nextRunAt)
+        .sort((a, b) => new Date(a.nextRunAt!).getTime() - new Date(b.nextRunAt!).getTime())
+        .slice(0, 8),
+    [schedules]
+  );
 
   const activeError = pendingError || runningError;
 
@@ -303,7 +480,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
         <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Rodando agora</h2>
@@ -388,6 +565,45 @@ export default function DashboardPage() {
             </ul>
           )}
         </div>
+
+        <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Próximas execuções</h2>
+            <Link href="/schedules" className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-300">
+              ver agendamentos
+            </Link>
+          </div>
+          {schedulesError && upcoming.length === 0 ? (
+            <ErrorState onRetry={() => refetchSchedules()} />
+          ) : upcoming.length === 0 ? (
+            <EmptyState className="py-4">Nenhum agendamento ativo.</EmptyState>
+          ) : (
+            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+              {upcoming.map((s) => (
+                <li key={s.id} className="flex items-center gap-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {automationName(s.automationId)}
+                    </p>
+                    <p className="truncate text-xs text-gray-500">{describeCron(s.cronExpression)}</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-medium text-rps-olive-dark">
+                    {formatDistanceToNow(new Date(s.nextRunAt!), { locale: ptBR, addSuffix: true })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <ErrorClassBreakdown range={range} />
+
+      <div>
+        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+          Saúde por automação · {rangeCfg.label}
+        </h2>
+        <AutomationHealthTable range={range} />
       </div>
 
       {selectedJobId && (
