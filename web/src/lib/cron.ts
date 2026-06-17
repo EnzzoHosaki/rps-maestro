@@ -13,7 +13,7 @@ export type CronModel =
   | { mode: "everyN"; unit: "minute" | "hour"; n: number }
   | { mode: "daily"; hour: number; minute: number }
   | { mode: "weekly"; days: number[]; hour: number; minute: number }
-  | { mode: "monthly"; day: number; hour: number; minute: number };
+  | { mode: "monthly"; days: number[]; hour: number; minute: number };
 
 // Domingo = 0, … Sábado = 6 (convenção cron padrão / robfig).
 export const WEEKDAYS = [
@@ -114,14 +114,28 @@ export function parseCron(expr: string): CronModel | null {
     return { mode: "weekly", days, hour: h, minute: m };
   }
 
-  // Mensalmente: m h <dia> * *
+  // Mensalmente: m h <dia(s)> * * — aceita lista "8,15,22".
   if (!isStar(dom) && isStar(dow)) {
-    const day = asInt(dom);
-    if (day === null || day < 1 || day > 31) return null;
-    return { mode: "monthly", day, hour: h, minute: m };
+    const days = parseMonthDays(dom);
+    if (!days) return null;
+    return { mode: "monthly", days, hour: h, minute: m };
   }
 
   return null;
+}
+
+// Expande "8", "8,15,22" em lista de dias do mês (1-31), ordenada e sem
+// duplicatas. Não aceita ranges (dias do mês não leem bem como "8-22").
+function parseMonthDays(field: string): number[] | null {
+  const days = new Set<number>();
+  for (const part of field.split(",")) {
+    if (!/^\d+$/.test(part)) return null;
+    const d = parseInt(part, 10);
+    if (d < 1 || d > 31) return null;
+    days.add(d);
+  }
+  const arr = [...days].sort((a, b) => a - b);
+  return arr.length ? arr : null;
 }
 
 export function buildCron(model: CronModel): string {
@@ -135,7 +149,7 @@ export function buildCron(model: CronModel): string {
     case "weekly":
       return `${model.minute} ${model.hour} * * ${buildDaysField(model.days)}`;
     case "monthly":
-      return `${model.minute} ${model.hour} ${model.day} * *`;
+      return `${model.minute} ${model.hour} ${[...new Set(model.days)].sort((a, b) => a - b).join(",")} * *`;
   }
 }
 
