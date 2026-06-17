@@ -144,6 +144,14 @@ function ScheduleForm({
                   <li>
                     <code className="font-mono">{"{{tomorrow}}"}</code> → amanhã
                   </li>
+                  <li>
+                    <code className="font-mono">{"{{prev_run}}"}</code> → data da execução
+                    {" "}agendada anterior (e <code className="font-mono">{"{{prev_run+1}}"}</code>/
+                    <code className="font-mono">{"{{prev_run-1}}"}</code>). Ex.: pra pegar só o
+                    {" "}período desde a última execução, use{" "}
+                    <code className="font-mono">{"{{prev_run+1}}"}</code> até{" "}
+                    <code className="font-mono">{"{{yesterday}}"}</code>.
+                  </li>
                 </ul>
                 <p className="mt-1">Formato resolvido: <span className="font-mono">dd/MM/yyyy</span>.</p>
               </div>

@@ -78,13 +78,16 @@ func (s *Scheduler) Reload(ctx context.Context) error {
 	// Registra todos os agendamentos habilitados
 	for _, sc := range schedules {
 		scheduleID := sc.ID
-		entryID, err := s.cron.AddFunc(sc.CronExpression, func() {
-			s.runSchedule(scheduleID)
-		})
+		// ParseSchedule (não AddFunc/ParseStandard) pra aceitar o `L` (último
+		// dia do mês) via Schedule customizada.
+		sched, err := ParseSchedule(sc.CronExpression)
 		if err != nil {
 			log.Printf("[scheduler] expressão cron inválida no agendamento %d (%q): %v", sc.ID, sc.CronExpression, err)
 			continue
 		}
+		entryID := s.cron.Schedule(sched, cron.FuncJob(func() {
+			s.runSchedule(scheduleID)
+		}))
 		s.entries[sc.ID] = entryID
 
 		next := s.cron.Entry(entryID).Next
@@ -121,10 +124,20 @@ func (s *Scheduler) runSchedule(scheduleID int) {
 		return
 	}
 
-	// Expande placeholders de data ({{today}}, {{yesterday}}, {{today-N}}…)
+	// Expande placeholders de data ({{today}}, {{yesterday}}, {{prev_run+N}}…)
 	// antes de serializar — assim cada disparo do cron tem datas frescas
 	// relativas ao momento da execução, em vez da data salva no schedule.
-	params = ExpandDatePlaceholders(params, time.Now())
+	// prevRun (execução agendada anterior) é calculado do próprio cron pra
+	// dar suporte a {{prev_run±N}}; zero se não der pra calcular.
+	now := time.Now()
+	var prevRun time.Time
+	if sched, perr := ParseSchedule(sc.CronExpression); perr == nil {
+		// Trunca ao minuto: `now` é alguns ms DEPOIS do horário agendado, então
+		// sem isso o PrevFire devolveria o próprio disparo atual como "anterior".
+		// Truncado, ele devolve o disparo imediatamente anterior a este.
+		prevRun = PrevFire(sched, now.Truncate(time.Minute))
+	}
+	params = ExpandDatePlaceholders(params, now, prevRun)
 
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
