@@ -17,6 +17,7 @@ import {
   type DateField,
   type EmpresaAgg,
   type Overview,
+  type TimeseriesRange,
 } from "@/lib/xml-api";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
@@ -568,10 +569,12 @@ function statusCount(ov: Overview, s: NotaStatus): number {
 
 function PainelCard({
   title,
+  action,
   className,
   children,
 }: {
   title: string;
+  action?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
@@ -579,7 +582,10 @@ function PainelCard({
     <div
       className={`rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm ${className ?? ""}`}
     >
-      <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</h2>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</h2>
+        {action}
+      </div>
       {children}
     </div>
   );
@@ -622,10 +628,260 @@ function MiniStat({
   );
 }
 
-// Painel: visão de gráficos sobre o snapshot atual do tracker (sem série
-// temporal — isso depende de endpoint novo no rps-xml-tracker). Três blocos:
-// distribuição por status (barras clicáveis → filtra Notas), latências p50/p95
-// e as empresas com mais notas pendentes (barras clicáveis → drill-down).
+// ── Gráfico de linha (SVG, sem lib) ──────────────────────────────────────────
+
+type ChartSeries = {
+  label: string;
+  // Classes Tailwind LITERAIS (o JIT não pega `stroke-${x}` interpolado).
+  strokeCls: string;
+  fillCls: string;
+  swatchCls: string;
+  values: (number | null)[];
+};
+
+// "2026-05-19" → "19/05" pro eixo X.
+function ddmm(date: string): string {
+  const p = date.split("-");
+  return p.length === 3 ? `${p[2]}/${p[1]}` : date;
+}
+
+function chartHasData(series: ChartSeries[]): boolean {
+  return series.some((s) => s.values.some((v) => v != null));
+}
+
+// Gráfico de linhas multi-série. Quebra a linha em `null` (vira gap). Pontos
+// têm <title> nativo pra tooltip. Cores via classe Tailwind (dark-aware).
+function LineChart({
+  series,
+  xLabels,
+  height = 170,
+  formatY = (n) => String(Math.round(n)),
+}: {
+  series: ChartSeries[];
+  xLabels: string[];
+  height?: number;
+  formatY?: (n: number) => string;
+}) {
+  const W = 640;
+  const padL = 48;
+  const padR = 12;
+  const padT = 10;
+  const padB = 22;
+  const innerW = W - padL - padR;
+  const innerH = height - padT - padB;
+  const n = xLabels.length;
+
+  const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
+  const maxV = Math.max(1, ...all);
+
+  const xAt = (i: number) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const yAt = (v: number) => padT + innerH - (v / maxV) * innerH;
+
+  const pathOf = (vals: (number | null)[]) => {
+    let d = "";
+    let pen = false; // caneta abaixada? (false após um gap)
+    vals.forEach((v, i) => {
+      if (v == null) {
+        pen = false;
+        return;
+      }
+      d += `${pen ? "L" : "M"}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)} `;
+      pen = true;
+    });
+    return d.trim();
+  };
+
+  // ~6 marcas no eixo X (evita amontoar 30/90 dias).
+  const step = Math.max(1, Math.ceil(n / 6));
+  const ticks = Array.from({ length: n }, (_, i) => i).filter(
+    (i) => i % step === 0 || i === n - 1,
+  );
+  const grid = [0, 0.5, 1];
+
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} className="w-full" role="img" aria-label="Gráfico de linha">
+      {grid.map((g) => {
+        const y = padT + innerH - g * innerH;
+        return (
+          <g key={g}>
+            <line
+              x1={padL}
+              y1={y}
+              x2={W - padR}
+              y2={y}
+              className="stroke-gray-200 dark:stroke-gray-800"
+              strokeWidth={1}
+            />
+            <text x={padL - 6} y={y + 3} textAnchor="end" className="fill-gray-400 text-[10px]">
+              {formatY(g * maxV)}
+            </text>
+          </g>
+        );
+      })}
+      {ticks.map((i) => (
+        <text
+          key={i}
+          x={xAt(i)}
+          y={height - 6}
+          textAnchor="middle"
+          className="fill-gray-400 text-[10px]"
+        >
+          {xLabels[i]}
+        </text>
+      ))}
+      {series.map((s) => (
+        <path
+          key={s.label}
+          d={pathOf(s.values)}
+          fill="none"
+          className={s.strokeCls}
+          strokeWidth={1.75}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ))}
+      {series.map((s) =>
+        s.values.map((v, i) =>
+          v == null ? null : (
+            <circle key={`${s.label}-${i}`} cx={xAt(i)} cy={yAt(v)} r={2} className={s.fillCls}>
+              <title>{`${xLabels[i]} · ${s.label}: ${formatY(v)}`}</title>
+            </circle>
+          ),
+        ),
+      )}
+    </svg>
+  );
+}
+
+function ChartLegend({ series }: { series: ChartSeries[] }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+      {series.map((s) => (
+        <span key={s.label} className="inline-flex items-center gap-1.5">
+          <span className={`inline-block h-2 w-2 rounded-sm ${s.swatchCls}`} />
+          {s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const TS_RANGES: TimeseriesRange[] = ["7d", "30d", "90d"];
+
+const VOLUME_META = [
+  { key: "arrived", label: "A Sincronizar", strokeCls: "stroke-yellow-500", fillCls: "fill-yellow-500", swatchCls: "bg-yellow-500" },
+  { key: "synced", label: "Sincronizada", strokeCls: "stroke-sky-500", fillCls: "fill-sky-500", swatchCls: "bg-sky-500" },
+  { key: "imported", label: "Importada", strokeCls: "stroke-rps-olive-dark", fillCls: "fill-rps-olive-dark", swatchCls: "bg-rps-olive-dark" },
+  { key: "import_ignored", label: "Ignorada", strokeCls: "stroke-gray-400", fillCls: "fill-gray-400", swatchCls: "bg-gray-400" },
+] as const;
+
+// Tendência ao longo do tempo (série temporal do tracker). Volume/dia (4 linhas)
+// + latência/dia por transição (p50/p95). Range 7/30/90d controla as 3 queries
+// de uma vez (um único fetch). Bucket fixo em "day" na v2.
+function PainelTrends() {
+  const [range, setRange] = useState<TimeseriesRange>("30d");
+  const q = useQuery({
+    queryKey: ["xml", "timeseries", range],
+    queryFn: () => xmlMetricsApi.timeseries(range, "day").then((r) => r.data),
+    refetchInterval: 60_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const buckets = q.data?.buckets ?? [];
+  const xLabels = buckets.map((b) => ddmm(b.date));
+
+  const volumeSeries: ChartSeries[] = VOLUME_META.map((m) => ({
+    label: m.label,
+    strokeCls: m.strokeCls,
+    fillCls: m.fillCls,
+    swatchCls: m.swatchCls,
+    values: buckets.map((b) => b[m.key]),
+  }));
+
+  const latSeries = (p50Key: keyof (typeof buckets)[number], p95Key: keyof (typeof buckets)[number]): ChartSeries[] => [
+    { label: "p50", strokeCls: "stroke-rps-olive-dark", fillCls: "fill-rps-olive-dark", swatchCls: "bg-rps-olive-dark", values: buckets.map((b) => b[p50Key] as number | null) },
+    { label: "p95", strokeCls: "stroke-amber-500", fillCls: "fill-amber-500", swatchCls: "bg-amber-500", values: buckets.map((b) => b[p95Key] as number | null) },
+  ];
+  const latArrivalSync = latSeries("lat_arrival_sync_p50_s", "lat_arrival_sync_p95_s");
+  const latSyncImport = latSeries("lat_sync_import_p50_s", "lat_sync_import_p95_s");
+
+  const rangePills = (
+    <div className="flex gap-1">
+      {TS_RANGES.map((r) => (
+        <button
+          key={r}
+          onClick={() => setRange(r)}
+          className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+            range === r
+              ? "bg-rps-olive-dark text-white"
+              : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+          }`}
+        >
+          {r}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <>
+      <PainelCard title="Volume por dia" action={rangePills} className="lg:col-span-2">
+        {q.isError ? (
+          <ErrorState onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <Skeleton className="h-44 w-full" />
+        ) : buckets.length === 0 ? (
+          <EmptyState className="py-4">Sem dados no período.</EmptyState>
+        ) : (
+          <>
+            <LineChart series={volumeSeries} xLabels={xLabels} />
+            <ChartLegend series={volumeSeries} />
+            <p className="mt-1 text-xs text-gray-400">
+              Notas por dia em que cada etapa ocorreu (fluxo, não estoque).
+            </p>
+          </>
+        )}
+      </PainelCard>
+
+      <PainelCard title="Latência chegada → sync (por dia)">
+        {q.isError ? (
+          <ErrorState onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <Skeleton className="h-44 w-full" />
+        ) : !chartHasData(latArrivalSync) ? (
+          <EmptyState className="py-4">Sem transições no período.</EmptyState>
+        ) : (
+          <>
+            <LineChart series={latArrivalSync} xLabels={xLabels} formatY={(n) => fmtDur(Math.round(n))} />
+            <ChartLegend series={latArrivalSync} />
+            <p className="mt-1 text-xs text-gray-400">Os últimos dias podem ser parciais.</p>
+          </>
+        )}
+      </PainelCard>
+
+      <PainelCard title="Latência sync → importação (por dia)">
+        {q.isError ? (
+          <ErrorState onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <Skeleton className="h-44 w-full" />
+        ) : !chartHasData(latSyncImport) ? (
+          <EmptyState className="py-4">Sem transições no período.</EmptyState>
+        ) : (
+          <>
+            <LineChart series={latSyncImport} xLabels={xLabels} formatY={(n) => fmtDur(Math.round(n))} />
+            <ChartLegend series={latSyncImport} />
+            <p className="mt-1 text-xs text-gray-400">Os últimos dias podem ser parciais.</p>
+          </>
+        )}
+      </PainelCard>
+    </>
+  );
+}
+
+// Painel: visão de gráficos do tracker. Snapshot (overview + empresas) +
+// tendência por dia (série temporal). Blocos: distribuição por status (barras
+// clicáveis → filtra Notas), latências p50/p95 atuais, empresas com mais notas
+// pendentes (barras clicáveis → drill-down) e os gráficos de tendência.
 function PainelView({
   ov,
   loading,
@@ -770,6 +1026,8 @@ function PainelView({
           </ul>
         )}
       </PainelCard>
+
+      <PainelTrends />
     </div>
   );
 }
