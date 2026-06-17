@@ -10,7 +10,7 @@ on:
 
 jobs:
   backend:
-    name: Go build + vet
+    name: Go build + vet + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +20,7 @@ jobs:
           cache: true
       - run: go build ./...
       - run: go vet ./...
+      - run: go test ./...
 
   web:
     name: Next tsc + eslint + build

@@ -33,7 +33,7 @@ function defaultModel(mode: FrequencyMode, t: { hour: number; minute: number }):
     case "weekly":
       return { mode: "weekly", days: [1], hour: t.hour, minute: t.minute };
     case "monthly":
-      return { mode: "monthly", days: [1], hour: t.hour, minute: t.minute };
+      return { mode: "monthly", days: [1], lastDay: false, hour: t.hour, minute: t.minute };
   }
 }
 
@@ -196,7 +196,8 @@ export function CronBuilder({
                       const days = on
                         ? model.days.filter((x) => x !== d)
                         : [...model.days, d];
-                      if (days.length === 0) return; // mantém ao menos um dia
+                      // mantém ao menos uma seleção (dia ou "último dia")
+                      if (days.length === 0 && !model.lastDay) return;
                       emit({ ...model, days });
                     }}
                     className={`rounded py-1 text-xs font-medium transition-colors ${
@@ -210,7 +211,25 @@ export function CronBuilder({
                 );
               })}
             </div>
-            <p className="mt-1 text-xs text-gray-500">Marque um ou mais dias (ex.: 8, 15, 22).</p>
+            <button
+              type="button"
+              onClick={() => {
+                const lastDay = !model.lastDay;
+                // não deixa zerar tudo (nem dia nem último dia)
+                if (!lastDay && model.days.length === 0) return;
+                emit({ ...model, lastDay });
+              }}
+              className={`mt-1 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                model.lastDay
+                  ? "bg-rps-olive-dark text-white"
+                  : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+              }`}
+            >
+              Último dia do mês
+            </button>
+            <p className="mt-1 text-xs text-gray-500">
+              Marque um ou mais dias (ex.: 8, 15, 22) e/ou o último dia do mês.
+            </p>
           </div>
           <div>
             <label className={labelCls}>Horário</label>
