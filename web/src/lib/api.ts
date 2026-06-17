@@ -176,6 +176,12 @@ export interface AutomationHealth {
   recent: JobStatus[]; // últimos status, mais recente primeiro
 }
 
+// Distribuição de jobs falhos por categoria de erro no período.
+export interface ErrorClassCount {
+  errorClass: string;
+  count: number;
+}
+
 export interface Schedule {
   id: number;
   automationId: number;
@@ -359,6 +365,8 @@ export const metricsApi = {
     api.get<JobsPerHourBucket[]>("/metrics/jobs-per-hour", { params: { range } }),
   automations: (range: MetricsRange = "24h") =>
     api.get<AutomationHealth[]>("/metrics/automations", { params: { range } }),
+  errorClasses: (range: MetricsRange = "24h") =>
+    api.get<ErrorClassCount[]>("/metrics/error-classes", { params: { range } }),
 };
 
 // ── Schedules ─────────────────────────────────────────────────────────────────

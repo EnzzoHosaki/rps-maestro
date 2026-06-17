@@ -517,3 +517,38 @@ func (r *PostgresJobRepository) GetAutomationHealth(ctx context.Context, interva
 
 	return out, nil
 }
+
+// GetErrorClassDistribution conta jobs falhos por categoria de erro no período
+// `interval` (string de intervalo do Postgres, vinda de whitelist no handler).
+// A categoria vem de result->>'error_class' (top-level, igual ao que a UI lê);
+// falha sem categoria cai em UNKNOWN. Ordenado por contagem desc.
+func (r *PostgresJobRepository) GetErrorClassDistribution(ctx context.Context, interval string) ([]models.ErrorClassCount, error) {
+	sql := `
+		SELECT
+		    COALESCE(NULLIF(result->>'error_class', ''), 'UNKNOWN') AS error_class,
+		    COUNT(*) AS count
+		FROM jobs
+		WHERE status = 'failed'
+		  AND completed_at >= NOW() - $1::interval
+		GROUP BY 1
+		ORDER BY count DESC, error_class`
+
+	rows, err := r.db.Query(ctx, sql, interval)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao agregar categorias de erro: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]models.ErrorClassCount, 0)
+	for rows.Next() {
+		var e models.ErrorClassCount
+		if err := rows.Scan(&e.ErrorClass, &e.Count); err != nil {
+			return nil, fmt.Errorf("erro ao escanear categoria de erro: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar categorias de erro: %w", err)
+	}
+	return out, nil
+}

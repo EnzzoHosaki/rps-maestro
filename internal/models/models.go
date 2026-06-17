@@ -88,6 +88,13 @@ type AutomationHealth struct {
 	Recent       []string `json:"recent"` // últimos N status, mais recente primeiro
 }
 
+// ErrorClassCount é a contagem de jobs falhos por categoria de erro
+// (result->>'error_class') num período. Falhas sem categoria caem em UNKNOWN.
+type ErrorClassCount struct {
+	ErrorClass string `json:"errorClass"`
+	Count      int    `json:"count"`
+}
+
 // JobListFilter agrega os filtros suportados por JobRepository.List.
 type JobListFilter struct {
 	Status       *string

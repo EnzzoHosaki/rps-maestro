@@ -15,9 +15,10 @@ import {
   type JobsPerHourBucket,
   type MetricsRange,
   type AutomationHealth,
+  type ErrorClassCount,
 } from "@/lib/api";
 import { describeCron } from "@/lib/cron";
-import { STATUS_LABEL, STATUS_STYLE } from "@/lib/jobs";
+import { STATUS_LABEL, STATUS_STYLE, errorClassLabel, errorClassStyle } from "@/lib/jobs";
 import { JobPanel } from "@/components/job-panel";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -177,6 +178,48 @@ function ChartLegend() {
       <span className="flex items-center gap-1">
         <span className="inline-block h-2 w-2 rounded-sm bg-gray-300" /> outros
       </span>
+    </div>
+  );
+}
+
+// Distribuição de falhas por categoria de erro (D3) — barras horizontais com
+// chip colorido + contagem. Some quando não há falha no período.
+function ErrorClassBreakdown({ range }: { range: MetricsRange }) {
+  const q = useQuery({
+    queryKey: ["metrics", "errorClasses", range],
+    queryFn: () => metricsApi.errorClasses(range).then((r) => r.data),
+    refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
+  });
+  const rows: ErrorClassCount[] = q.data ?? [];
+  const max = Math.max(1, ...rows.map((r) => r.count));
+
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">Falhas por categoria</h2>
+      {q.isError ? (
+        <ErrorState onRetry={() => q.refetch()} />
+      ) : q.isLoading ? (
+        <Skeleton className="h-24 w-full" />
+      ) : rows.length === 0 ? (
+        <EmptyState className="py-4">Nenhuma falha no período. 🎉</EmptyState>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.errorClass} className="flex items-center gap-3">
+              <Badge size="xs" className={`${errorClassStyle(r.errorClass)} w-40 shrink-0 truncate text-center`}>
+                {errorClassLabel(r.errorClass)}
+              </Badge>
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                <div className="h-full rounded-full bg-red-400" style={{ width: `${(r.count / max) * 100}%` }} />
+              </div>
+              <span className="w-8 shrink-0 text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
+                {r.count}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -553,6 +596,8 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      <ErrorClassBreakdown range={range} />
 
       <div>
         <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
