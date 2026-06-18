@@ -7,6 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	// Embute o banco de fusos IANA no binário. A imagem runtime é alpine sem
+	// tzdata; sem isso, time.LoadLocation("America/Sao_Paulo") falha e o
+	// scheduler cai em UTC (dispara 3h adiantado).
+	_ "time/tzdata"
 
 	"github.com/EnzzoHosaki/rps-maestro/internal/api"
 	"github.com/EnzzoHosaki/rps-maestro/internal/config"

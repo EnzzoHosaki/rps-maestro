@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -14,6 +15,13 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// defaultSchedulerTZ é o fuso usado pra interpretar as expressões cron quando
+// nenhum SCHEDULER_TZ/TZ é definido. Os agendamentos foram criados pensando no
+// horário de Brasília, então é o default certo — e fixá-lo aqui blinda o
+// scheduler do TZ do container (alpine sem tzdata cai em UTC e dispara 3h
+// adiantado).
+const defaultSchedulerTZ = "America/Sao_Paulo"
+
 type Scheduler struct {
 	cron           *cron.Cron
 	scheduleRepo   repository.ScheduleRepository
@@ -22,6 +30,28 @@ type Scheduler struct {
 	queueClient    *queue.RabbitMQClient
 	entries        map[int]cron.EntryID
 	mu             sync.Mutex
+	loc            *time.Location
+	locName        string // nome IANA pra injetar via CRON_TZ; "" se caiu no fallback
+}
+
+// resolveLocation escolhe o fuso do scheduler: SCHEDULER_TZ > TZ > default
+// (America/Sao_Paulo). Cai em time.Local com aviso se o nome não carregar (o
+// binário embute time/tzdata, então em condições normais sempre carrega).
+func resolveLocation() (*time.Location, string) {
+	name := os.Getenv("SCHEDULER_TZ")
+	if name == "" {
+		name = os.Getenv("TZ")
+	}
+	if name == "" {
+		name = defaultSchedulerTZ
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		log.Printf("[scheduler] timezone %q inválida (%v) — usando time.Local (%s)", name, err, time.Local)
+		return time.Local, ""
+	}
+	log.Printf("[scheduler] fuso horário: %s", name)
+	return loc, name
 }
 
 func New(
@@ -30,13 +60,16 @@ func New(
 	jobRepo repository.JobRepository,
 	queueClient *queue.RabbitMQClient,
 ) *Scheduler {
+	loc, locName := resolveLocation()
 	return &Scheduler{
-		cron:           cron.New(),
+		cron:           cron.New(cron.WithLocation(loc)),
 		scheduleRepo:   scheduleRepo,
 		automationRepo: automationRepo,
 		jobRepo:        jobRepo,
 		queueClient:    queueClient,
 		entries:        make(map[int]cron.EntryID),
+		loc:            loc,
+		locName:        locName,
 	}
 }
 
@@ -78,9 +111,10 @@ func (s *Scheduler) Reload(ctx context.Context) error {
 	// Registra todos os agendamentos habilitados
 	for _, sc := range schedules {
 		scheduleID := sc.ID
-		// ParseSchedule (não AddFunc/ParseStandard) pra aceitar o `L` (último
-		// dia do mês) via Schedule customizada.
-		sched, err := ParseSchedule(sc.CronExpression)
+		// ParseScheduleTZ (não AddFunc/ParseStandard) pra (a) aceitar o `L`
+		// (último dia do mês) via Schedule customizada e (b) fixar o fuso na
+		// expressão, senão o disparo herda o TZ do container (UTC).
+		sched, err := ParseScheduleTZ(sc.CronExpression, s.locName)
 		if err != nil {
 			log.Printf("[scheduler] expressão cron inválida no agendamento %d (%q): %v", sc.ID, sc.CronExpression, err)
 			continue
@@ -129,9 +163,9 @@ func (s *Scheduler) runSchedule(scheduleID int) {
 	// relativas ao momento da execução, em vez da data salva no schedule.
 	// prevRun (execução agendada anterior) é calculado do próprio cron pra
 	// dar suporte a {{prev_run±N}}; zero se não der pra calcular.
-	now := time.Now()
+	now := time.Now().In(s.loc)
 	var prevRun time.Time
-	if sched, perr := ParseSchedule(sc.CronExpression); perr == nil {
+	if sched, perr := ParseScheduleTZ(sc.CronExpression, s.locName); perr == nil {
 		// Trunca ao minuto: `now` é alguns ms DEPOIS do horário agendado, então
 		// sem isso o PrevFire devolveria o próprio disparo atual como "anterior".
 		// Truncado, ele devolve o disparo imediatamente anterior a este.
