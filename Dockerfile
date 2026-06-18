@@ -21,6 +21,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM alpine:latest
 
+# Fuso horário de Brasília como padrão do container — alinha logs e qualquer
+# uso de time.Local. O scheduler já é blindado em código (embute time/tzdata +
+# fixa America/Sao_Paulo), mas isso mantém o resto da app coerente. tzdata dá
+# suporte a /etc/localtime; sobrescreva via env TZ se precisar de outro fuso.
+RUN apk add --no-cache tzdata
+ENV TZ=America/Sao_Paulo
+
 WORKDIR /root/
 
 COPY --from=builder /app/rps-maestro .
