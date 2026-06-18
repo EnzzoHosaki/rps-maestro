@@ -41,6 +41,7 @@ export type NotaStatus =
 
 export interface Nota {
   chave_acesso: string;
+  numero_nota?: string; // nNF derivado da chave; vazio p/ NFSe
   doc_type: DocType;
   status: NotaStatus;
   codigo_empresa?: number;
@@ -175,10 +176,11 @@ export const empresasApi = {
   // limit=0 devolve TODAS as linhas (empresas/filiais + a linha "Sem empresa"),
   // pra ordenar por pendentes no cliente. `pendentes:true` filtra a contagem
   // (e exclui a linha "Sem empresa"), então não passamos isso na visão geral.
-  list: (opts: { pendentes?: boolean; limit?: number } = {}) => {
+  list: (opts: { pendentes?: boolean; limit?: number; q?: string } = {}) => {
     const params: Record<string, string | number> = {};
     if (opts.pendentes) params.pendentes = "true";
     if (opts.limit != null) params.limit = opts.limit;
+    if (opts.q) params.q = opts.q; // busca parcial por nome, case-insensitive (backend)
     return xmlApi.get<{ items: EmpresaAgg[]; total: number }>("/empresas", { params });
   },
 };
