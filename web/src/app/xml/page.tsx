@@ -29,6 +29,9 @@ import { ErrorRow, ErrorState } from "@/components/ui/error-state";
 
 const PAGE_SIZE = 50;
 
+// "Travada"/"Sumida" ficam de fora: o backend nunca produz esses status (sempre
+// 0), então seriam ruído. Os cards de Travadas/Sumidas no topo só aparecem se
+// algum dia vier > 0.
 const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "arrived", label: "A Sincronizar" },
@@ -36,11 +39,34 @@ const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "pending_import", label: "Aguardando Importação" },
   { value: "imported", label: "Importada" },
   { value: "import_ignored", label: "Ignorada" },
-  { value: "stuck", label: "Travada" },
-  { value: "lost", label: "Sumida" },
 ];
 
 const DOC_TYPES: (DocType | "all")[] = ["all", "NFE", "NFCE", "CTE"];
+
+// Formatação de números pt-BR: compacto pro display ("1,02 mi", "394,1 mil") e
+// completo com separador de milhar pro tooltip ("1.018.038").
+const compactFmt = new Intl.NumberFormat("pt-BR", {
+  notation: "compact",
+  maximumFractionDigits: 2,
+});
+const fullFmt = new Intl.NumberFormat("pt-BR");
+function fmtCompact(n: number): string {
+  return compactFmt.format(n);
+}
+function fmtFull(n: number): string {
+  return fullFmt.format(n);
+}
+
+// Atrasa a propagação de um valor (ex.: texto de busca) por `ms` — evita refazer
+// a chamada da API a cada tecla.
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return debounced;
+}
 
 function StatCard({
   label,
@@ -65,6 +91,9 @@ function StatCard({
         : tone === "danger"
           ? "text-red-700"
           : "text-gray-900 dark:text-gray-100";
+  // Número grande → compacto; hover no próprio número mostra o valor cheio.
+  const display = typeof value === "number" ? fmtCompact(value) : value;
+  const valueTitle = typeof value === "number" ? fmtFull(value) : undefined;
   return (
     <div
       title={title}
@@ -74,7 +103,11 @@ function StatCard({
       {loading ? (
         <Skeleton className="mt-2 h-7 w-16" />
       ) : (
-        <p className={`mt-1 text-2xl font-bold ${accent}`}>{value}</p>
+        <p className={`mt-1 text-2xl font-bold ${accent}`}>
+          <span title={valueTitle} className={valueTitle ? "cursor-help" : undefined}>
+            {display}
+          </span>
+        </p>
       )}
       {hint && <p className="mt-0.5 text-xs text-gray-500">{hint}</p>}
     </div>
@@ -287,10 +320,10 @@ function XmlPageContent() {
       {ov && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
           <span>
-            <b className="text-gray-700 dark:text-gray-300">{pendentes}</b> pendentes
+            <b className="text-gray-700 dark:text-gray-300" title={fmtFull(pendentes)}>{fmtCompact(pendentes)}</b> pendentes
             <span className="text-gray-400"> (chegou + sincronizado + aguardando + travada)</span>
             {" · "}
-            {ov.in_transit} em trânsito
+            <span title={fmtFull(ov.in_transit)}>{fmtCompact(ov.in_transit)}</span> em trânsito
           </span>
           <span title="Percentis das transições dos últimos 30 dias; exclui backfill histórico.">
             Latência chegada→sync (30d): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
@@ -301,8 +334,11 @@ function XmlPageContent() {
         </div>
       )}
 
-      {/* Toggle de visão: Notas (lista) × Empresas (agregado) × Painel (gráficos) */}
-      <div className="flex gap-1.5">
+      {/* Navegação entre visões — segmented control, propositalmente distinto
+          dos chips de filtro (que são pills olive). Aqui é uma trilha cinza com
+          a aba ativa em "cartão" branco, pra não confundir "trocar de aba" com
+          "filtrar". */}
+      <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 p-0.5">
         {(["notas", "empresas", "painel"] as const).map((v) => (
           <button
             key={v}
@@ -312,10 +348,10 @@ function XmlPageContent() {
               if (v !== "notas") clearEmpresaFilter();
               setView(v);
             }}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
               view === v
-                ? "bg-rps-olive-dark text-white"
-                : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                ? "bg-white dark:bg-gray-900 text-rps-olive-dark shadow-sm"
+                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
             }`}
           >
             {v === "notas" ? "Notas" : v === "empresas" ? "Empresas" : "Painel"}
@@ -342,6 +378,7 @@ function XmlPageContent() {
         <>
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-3">
+        <span className="text-xs font-medium uppercase tracking-wider text-gray-400">Filtrar:</span>
         <div className="flex flex-wrap gap-1.5">
           {STATUS_FILTERS.map((s) => (
             <button
@@ -378,7 +415,13 @@ function XmlPageContent() {
           className="min-w-[280px] flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
         <span className="text-sm text-gray-500">
-          {list.isFetching ? "Atualizando…" : `${total} nota${total === 1 ? "" : "s"}`}
+          {list.isFetching ? (
+            "Atualizando…"
+          ) : (
+            <span title={fmtFull(total)}>
+              {fmtCompact(total)} nota{total === 1 ? "" : "s"}
+            </span>
+          )}
         </span>
       </div>
 
@@ -436,6 +479,7 @@ function XmlPageContent() {
       <Table>
         <THead>
           <Th>Chave</Th>
+          <Th>Número</Th>
           <Th>Tipo</Th>
           <Th>Empresa</Th>
           <Th>Emitente</Th>
@@ -452,6 +496,7 @@ function XmlPageContent() {
               <Td className="font-mono text-xs text-gray-600 dark:text-gray-400" title={n.chave_acesso}>
                 …{n.chave_acesso.slice(-12)}
               </Td>
+              <Td className="font-mono text-xs text-gray-600 dark:text-gray-400">{n.numero_nota || "—"}</Td>
               <Td className="text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</Td>
               <Td className="max-w-[220px] truncate text-gray-700 dark:text-gray-300" title={n.nome_empresa}>
                 {n.codigo_empresa ? (
@@ -481,18 +526,21 @@ function XmlPageContent() {
             </Tr>
           ))}
           {list.isError && items.length === 0 && (
-            <ErrorRow colSpan={6} onRetry={() => list.refetch()} />
+            <ErrorRow colSpan={7} onRetry={() => list.refetch()} />
           )}
           {!list.isLoading && !list.isError && items.length === 0 && (
-            <EmptyRow colSpan={6}>Nenhuma nota encontrada com os filtros atuais.</EmptyRow>
+            <EmptyRow colSpan={7}>Nenhuma nota encontrada com os filtros atuais.</EmptyRow>
           )}
-          {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={6} />)}
+          {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={7} />)}
         </TBody>
       </Table>
 
       {total > 0 && (
         <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
-          <span>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)} de {total}</span>
+          <span>
+            {fmtCompact(offset + 1)}–{fmtCompact(Math.min(offset + PAGE_SIZE, total))} de{" "}
+            <span title={fmtFull(total)}>{fmtCompact(total)}</span>
+          </span>
           <div className="flex gap-2">
             <Button
               variant="outline"
@@ -616,13 +664,17 @@ function MiniStat({
   value: number | string;
   tone?: "success";
 }) {
+  const display = typeof value === "number" ? fmtCompact(value) : value;
+  const valueTitle = typeof value === "number" ? fmtFull(value) : undefined;
   return (
     <div className="rounded border border-gray-200 dark:border-gray-800 p-2">
       <p className="text-xs text-gray-500">{label}</p>
       <p
         className={`text-lg font-bold ${tone === "success" ? "text-rps-olive-dark" : "text-gray-900 dark:text-gray-100"}`}
       >
-        {value}
+        <span title={valueTitle} className={valueTitle ? "cursor-help" : undefined}>
+          {display}
+        </span>
       </p>
     </div>
   );
@@ -656,12 +708,17 @@ function LineChart({
   xLabels,
   height = 170,
   formatY = (n) => String(Math.round(n)),
+  formatTip,
 }: {
   series: ChartSeries[];
   xLabels: string[];
   height?: number;
+  // formatY: rótulos do eixo (compacto). formatTip: tooltip do ponto (cheio);
+  // cai no formatY se não informado.
   formatY?: (n: number) => string;
+  formatTip?: (n: number) => string;
 }) {
+  const tip = formatTip ?? formatY;
   const W = 640;
   const padL = 48;
   const padR = 12;
@@ -744,7 +801,7 @@ function LineChart({
         s.values.map((v, i) =>
           v == null ? null : (
             <circle key={`${s.label}-${i}`} cx={xAt(i)} cy={yAt(v)} r={2} className={s.fillCls}>
-              <title>{`${xLabels[i]} · ${s.label}: ${formatY(v)}`}</title>
+              <title>{`${xLabels[i]} · ${s.label}: ${tip(v)}`}</title>
             </circle>
           ),
         ),
@@ -834,7 +891,12 @@ function PainelTrends() {
           <EmptyState className="py-4">Sem dados no período.</EmptyState>
         ) : (
           <>
-            <LineChart series={volumeSeries} xLabels={xLabels} />
+            <LineChart
+              series={volumeSeries}
+              xLabels={xLabels}
+              formatY={(n) => fmtCompact(Math.round(n))}
+              formatTip={(n) => fmtFull(Math.round(n))}
+            />
             <ChartLegend series={volumeSeries} />
             <p className="mt-1 text-xs text-gray-400">
               Notas por dia em que cada etapa ocorreu (fluxo, não estoque).
@@ -903,11 +965,17 @@ function PainelView({
     refetchInterval: 30_000,
   });
 
-  const counts = ov
-    ? PAINEL_STATUSES.map((s) => ({ status: s, count: statusCount(ov, s) }))
-    : [];
+  // "imported" fica FORA das barras: é ordens de grandeza maior (milhões de
+  // notas terminais) e achataria as demais. Plotamos o resto e mostramos o
+  // total de importadas à parte. stuck/lost também saem (o backend nunca
+  // produz, seriam barras zeradas — mesmo motivo dos filtros da aba Notas).
+  const barStatuses = PAINEL_STATUSES.filter(
+    (s) => s !== "imported" && s !== "stuck" && s !== "lost",
+  );
+  const counts = ov ? barStatuses.map((s) => ({ status: s, count: statusCount(ov, s) })) : [];
   const maxCount = Math.max(1, ...counts.map((c) => c.count));
-  const totalNotas = counts.reduce((a, c) => a + c.count, 0);
+  const importedTotal = ov ? ov.imported : 0;
+  const grandTotal = ov ? PAINEL_STATUSES.reduce((a, s) => a + statusCount(ov, s), 0) : 0;
 
   const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import + e.stuck;
   const topEmpresas = [...(empresas.data?.items ?? [])]
@@ -923,10 +991,21 @@ function PainelView({
           <ErrorState onRetry={onRetry} />
         ) : loading ? (
           <Skeleton className="h-40 w-full" />
-        ) : totalNotas === 0 ? (
+        ) : grandTotal === 0 ? (
           <EmptyState className="py-4">Nenhuma nota rastreada.</EmptyState>
         ) : (
           <>
+            {/* Importadas à parte (fora do eixo das barras) */}
+            <button
+              onClick={() => onPickStatus("imported")}
+              title={`${fmtFull(importedTotal)} importadas — clique pra filtrar`}
+              className="mb-3 flex w-full items-center justify-between rounded-md bg-rps-olive-soft px-3 py-2 text-left"
+            >
+              <span className="text-xs font-medium text-rps-olive-dark">Importadas (total)</span>
+              <span className="text-base font-bold tabular-nums text-rps-olive-dark">
+                {fmtCompact(importedTotal)}
+              </span>
+            </button>
             <ul className="space-y-2">
               {counts.map((c) => (
                 <li key={c.status}>
@@ -947,15 +1026,19 @@ function PainelView({
                         style={{ width: `${(c.count / maxCount) * 100}%` }}
                       />
                     </div>
-                    <span className="w-12 shrink-0 text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
-                      {c.count}
+                    <span
+                      title={fmtFull(c.count)}
+                      className="w-14 shrink-0 cursor-help text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300"
+                    >
+                      {fmtCompact(c.count)}
                     </span>
                   </button>
                 </li>
               ))}
             </ul>
             <p className="mt-3 text-xs text-gray-500">
-              {totalNotas} notas rastreadas · clique numa barra pra filtrar.
+              {fmtCompact(grandTotal)} notas rastreadas (importadas à parte) · clique numa barra pra
+              filtrar.
             </p>
           </>
         )}
@@ -1017,8 +1100,11 @@ function PainelView({
                       style={{ width: `${(pend(e) / maxPend) * 100}%` }}
                     />
                   </div>
-                  <span className="w-10 shrink-0 text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
-                    {pend(e)}
+                  <span
+                    title={fmtFull(pend(e))}
+                    className="w-14 shrink-0 cursor-help text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300"
+                  >
+                    {fmtCompact(pend(e))}
                   </span>
                 </button>
               </li>
@@ -1036,10 +1122,15 @@ function PainelView({
 // ordenada por pendentes desc (sem-empresa fixada por último). Drill-down
 // reusa os filtros de URL da aba Notas.
 function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
+  const [search, setSearch] = useState("");
+  const debounced = useDebounced(search.trim(), 300);
   const q = useQuery({
-    queryKey: ["xml", "empresas"],
-    queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data),
+    // Busca por nome via API (?q=, parcial/case-insensitive). Mantém limit:0
+    // (todas as linhas) + sort/paginação client-side de sempre.
+    queryKey: ["xml", "empresas", debounced],
+    queryFn: () => empresasApi.list({ limit: 0, q: debounced || undefined }).then((r) => r.data),
     refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
   });
 
   const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import + e.stuck;
@@ -1055,11 +1146,28 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
     n === 0 ? (
       <span className="text-gray-300 dark:text-gray-600">0</span>
     ) : (
-      <span className={tone === "danger" ? "font-medium text-red-600 dark:text-red-400" : tone === "warn" ? "text-amber-700 dark:text-amber-400" : ""}>{n}</span>
+      <span
+        title={fmtFull(n)}
+        className={`cursor-help ${tone === "danger" ? "font-medium text-red-600 dark:text-red-400" : tone === "warn" ? "text-amber-700 dark:text-amber-400" : ""}`}
+      >
+        {fmtCompact(n)}
+      </span>
     );
 
   return (
-    <Table>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar empresa por nome…"
+          className="w-72 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+        />
+        <span className="text-sm text-gray-500">
+          {q.isFetching ? "Atualizando…" : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
+        </span>
+      </div>
+      <Table>
       <THead>
         <Th>Empresa</Th>
         <Th className="text-right" title="Chegou + sincronizado + aguardando + travada">Pendentes</Th>
@@ -1086,23 +1194,32 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
                   e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`
                 )}
               </Td>
-              <Td className="text-right font-semibold text-gray-900 dark:text-gray-100">{pend(e)}</Td>
+              <Td className="text-right font-semibold text-gray-900 dark:text-gray-100">
+                <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
+              </Td>
               <Td className="text-right">{cell(e.arrived, "warn")}</Td>
               <Td className="text-right">{cell(e.synced)}</Td>
               <Td className="text-right">{cell(e.pending_import)}</Td>
               <Td className="text-right">{cell(e.stuck, "danger")}</Td>
               <Td className="text-right">{cell(e.lost, "danger")}</Td>
-              <Td className="text-right text-gray-500">{e.imported}</Td>
+              <Td className="text-right text-gray-500">
+                <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+              </Td>
             </Tr>
           );
         })}
         {q.isError && rows.length === 0 && <ErrorRow colSpan={numCols} onRetry={() => q.refetch()} />}
         {!q.isLoading && !q.isError && rows.length === 0 && (
-          <EmptyRow colSpan={numCols}>Nenhuma empresa com notas rastreadas.</EmptyRow>
+          <EmptyRow colSpan={numCols}>
+            {debounced
+              ? `Nenhuma empresa encontrada para “${debounced}”.`
+              : "Nenhuma empresa com notas rastreadas."}
+          </EmptyRow>
         )}
         {q.isLoading && Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={numCols} />)}
       </TBody>
-    </Table>
+      </Table>
+    </div>
   );
 }
 
