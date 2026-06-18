@@ -108,3 +108,45 @@ func TestExpandDatePlaceholders_prevRun(t *testing.T) {
 		t.Errorf("prev_run sem contexto = %v; quer fallback 08/06/2026", out2["x"])
 	}
 }
+
+// TestParseScheduleTZ_pinnedTimezone garante a correção do bug "agendado pra
+// 01:00 disparou às 22:00": no container alpine time.Local é UTC, então sem
+// fixar o fuso o cron "0 1 * * *" dispara às 01:00 UTC (= 22:00 BRT). Com o
+// CRON_TZ injetado, o próximo disparo cai às 01:00 em America/Sao_Paulo, que é
+// 04:00 UTC — independente do time.Local do processo.
+func TestParseScheduleTZ_pinnedTimezone(t *testing.T) {
+	br, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v (binário embute time/tzdata?)", err)
+	}
+
+	// "agora" = 2026-06-17 00:00 UTC (= 16/06 21:00 BRT). O próximo "01:00 BRT"
+	// é 17/06 01:00 BRT = 17/06 04:00 UTC.
+	now := time.Date(2026, time.June, 17, 0, 0, 0, 0, time.UTC)
+
+	withTZ, err := ParseScheduleTZ("0 1 * * *", "America/Sao_Paulo")
+	if err != nil {
+		t.Fatalf("ParseScheduleTZ com fuso: %v", err)
+	}
+	gotTZ := withTZ.Next(now)
+	wantTZ := time.Date(2026, time.June, 17, 1, 0, 0, 0, br) // 01:00 BRT
+	if !gotTZ.Equal(wantTZ) {
+		t.Errorf("com fuso: próximo disparo = %s; queria %s (01:00 BRT)", gotTZ.UTC(), wantTZ.UTC())
+	}
+	if h := gotTZ.UTC().Hour(); h != 4 {
+		t.Errorf("com fuso: disparo em UTC = %dh; queria 4h (01:00 BRT)", h)
+	}
+
+	// Sem fixar fuso, o SpecSchedule herda time.Local. Não dá pra forçar
+	// time.Local num teste de forma portátil, então só garantimos que a versão
+	// sem TZ NÃO está presa ao BRT (ou seja, o prefixo CRON_TZ é o que prende).
+	noTZ, err := ParseScheduleTZ("0 1 * * *", "")
+	if err != nil {
+		t.Fatalf("ParseScheduleTZ sem fuso: %v", err)
+	}
+	// Em time.Local=UTC (CI/alpine), o disparo seria 01:00 UTC. Confirmamos que
+	// difere do caso com fuso — provando que a injeção muda o instante.
+	if noTZ.Next(now).Equal(gotTZ) && time.Local.String() == "UTC" {
+		t.Errorf("sem fuso deveria diferir do com-fuso quando time.Local=UTC")
+	}
+}

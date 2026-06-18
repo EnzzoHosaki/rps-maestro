@@ -9,16 +9,32 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// ParseSchedule converte uma expressão de 5 campos numa cron.Schedule.
+// ParseSchedule converte uma expressão de 5 campos numa cron.Schedule, sem
+// fixar fuso (o SpecSchedule herda time.Local). Use pra VALIDAÇÃO, onde o fuso
+// não importa. Pro runtime do scheduler use ParseScheduleTZ.
+func ParseSchedule(expr string) (cron.Schedule, error) {
+	return ParseScheduleTZ(expr, "")
+}
+
+// ParseScheduleTZ é como ParseSchedule, mas com fuso explícito.
 //
 // O cron padrão (robfig ParseStandard) NÃO entende o token `L` (último dia do
 // mês). Pra suportar agendamentos tipo "dias 8,15,22 e o último dia", quando o
-// campo dia-do-mês contém `L` a gente usa um Schedule próprio (monthDaysSchedule);
+// campo dia-do-mês contém `L` a gente usa um Schedule próprio (monthDaysSchedule),
+// cujo Next respeita o fuso do `t` que o runner passa (cron.WithLocation);
 // caso contrário cai no ParseStandard normal (que já cobre listas como 8,15,22).
-func ParseSchedule(expr string) (cron.Schedule, error) {
+//
+// Quando tzName != "" injeta o prefixo CRON_TZ= na expressão. Sem isso, o
+// SpecSchedule do robfig herda time.Local — que no container alpine é UTC (sem
+// tzdata/TZ), fazendo o cron disparar 3h adiantado. Com o prefixo o disparo fica
+// preso ao fuso pretendido, independente do TZ do container.
+func ParseScheduleTZ(expr, tzName string) (cron.Schedule, error) {
 	fields := strings.Fields(expr)
 	if len(fields) == 5 && strings.ContainsAny(fields[2], "Ll") {
 		return parseMonthDaysSchedule(fields)
+	}
+	if tzName != "" {
+		expr = "CRON_TZ=" + tzName + " " + expr
 	}
 	return cron.ParseStandard(expr)
 }
