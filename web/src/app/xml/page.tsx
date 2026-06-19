@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 import {
   notasApi,
   xmlMetricsApi,
@@ -43,6 +43,16 @@ const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
 
 const DOC_TYPES: (DocType | "all")[] = ["all", "NFE", "NFCE", "CTE"];
 
+// Contagem por status pro chip de filtro, reaproveitando o /metrics/overview
+// que já é buscado (zero backend novo). "all" = soma dos status filtráveis.
+function statusChipCount(ov: Overview | undefined, value: NotaStatus | "all"): number | null {
+  if (!ov) return null;
+  if (value === "all") {
+    return ov.arrived + ov.synced + ov.pending_import + ov.imported + ov.import_ignored;
+  }
+  return statusCount(ov, value);
+}
+
 // Formatação de números pt-BR: compacto pro display ("1,02 mi", "394,1 mil") e
 // completo com separador de milhar pro tooltip ("1.018.038").
 const compactFmt = new Intl.NumberFormat("pt-BR", {
@@ -66,6 +76,83 @@ function useDebounced<T>(value: T, ms: number): T {
     return () => clearTimeout(id);
   }, [value, ms]);
   return debounced;
+}
+
+function fmtAgo(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}min`;
+  return `${Math.floor(secs / 3600)}h`;
+}
+
+// Indicador de frescor dos dados (data observability). Lê dataUpdatedAt do
+// react-query — nenhum dado novo de backend. Re-renderiza a cada 5s pra manter
+// o "há Xs" vivo.
+function FreshnessIndicator({
+  updatedAt,
+  isFetching,
+  isError,
+}: {
+  updatedAt: number;
+  isFetching: boolean;
+  isError: boolean;
+}) {
+  // `now` vem do state (init lazy + atualizado pelo intervalo), não de
+  // Date.now() no corpo do render — impuro no render é proibido pela lint.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (isError) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Desatualizado
+      </span>
+    );
+  }
+  if (isFetching) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-rps-olive-dark" /> Atualizando…
+      </span>
+    );
+  }
+  const secs = updatedAt && now ? Math.max(0, Math.round((now - updatedAt) / 1000)) : 0;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-xs text-gray-500"
+      title={updatedAt ? `Última atualização: ${format(new Date(updatedAt), "dd/MM/yyyy HH:mm:ss")}` : undefined}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-rps-sage" /> Atualizado há {fmtAgo(secs)}
+    </span>
+  );
+}
+
+// Botão de copiar (ação passiva — não altera dado). Mostra um check por ~1.2s.
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(text).then(() => {
+          setDone(true);
+          setTimeout(() => setDone(false), 1200);
+        });
+      }}
+      title={`Copiar ${label}`}
+      aria-label={`Copiar ${label}`}
+      className="shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-rps-olive-dark focus:opacity-100 group-hover:opacity-100"
+    >
+      {done ? (
+        <Check className="h-3.5 w-3.5 text-rps-olive-dark" aria-hidden />
+      ) : (
+        <Copy className="h-3.5 w-3.5" aria-hidden />
+      )}
+    </button>
+  );
 }
 
 function StatCard({
@@ -286,6 +373,16 @@ function XmlPageContent() {
 
   return (
     <div className="space-y-5">
+      {/* Frescor dos dados (data observability) — responde "os dados estão
+          atualizados?" sem depender de backend novo. */}
+      <div className="flex justify-end">
+        <FreshnessIndicator
+          updatedAt={overview.dataUpdatedAt}
+          isFetching={overview.isFetching}
+          isError={overview.isError}
+        />
+      </div>
+
       {/* Banner: tracker indisponível/instável */}
       {(overview.isError || list.isError) && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
@@ -378,9 +475,12 @@ function XmlPageContent() {
         <>
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-gray-400">Filtrar:</span>
+        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Filtrar:</span>
         <div className="flex flex-wrap gap-1.5">
-          {STATUS_FILTERS.map((s) => (
+          {STATUS_FILTERS.map((s) => {
+            const count = statusChipCount(ov, s.value);
+            const active = statusFilter === s.value;
+            return (
             <button
               key={s.value}
               onClick={() => {
@@ -389,15 +489,24 @@ function XmlPageContent() {
                 clearEmpresaFilter();
                 reset(setStatusFilter)(s.value);
               }}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                statusFilter === s.value
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                active
                   ? "bg-rps-olive-dark text-white"
                   : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
               }`}
             >
               {s.label}
+              {count != null && (
+                <span
+                  title={fmtFull(count)}
+                  className={`tabular-nums ${active ? "text-white/75" : "text-gray-400 dark:text-gray-500"}`}
+                >
+                  {fmtCompact(count)}
+                </span>
+              )}
             </button>
-          ))}
+            );
+          })}
         </div>
         <select
           value={docFilter}
@@ -476,8 +585,8 @@ function XmlPageContent() {
       )}
 
       {/* Tabela */}
-      <Table>
-        <THead>
+      <Table stickyHeader>
+        <THead sticky>
           <Th>Chave</Th>
           <Th>Número</Th>
           <Th>Tipo</Th>
@@ -490,11 +599,14 @@ function XmlPageContent() {
           {items.map((n) => (
             <Tr
               key={n.chave_acesso}
-              className="cursor-pointer"
+              className="group cursor-pointer"
               onClick={() => setSelected(n.chave_acesso)}
             >
-              <Td className="font-mono text-xs text-gray-600 dark:text-gray-400" title={n.chave_acesso}>
-                …{n.chave_acesso.slice(-12)}
+              <Td className="font-mono text-xs text-gray-600 dark:text-gray-400">
+                <span className="inline-flex items-center gap-1.5">
+                  <span title={n.chave_acesso}>…{n.chave_acesso.slice(-12)}</span>
+                  <CopyButton text={n.chave_acesso} label="chave" />
+                </span>
               </Td>
               <Td className="font-mono text-xs text-gray-600 dark:text-gray-400">{n.numero_nota || "—"}</Td>
               <Td className="text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</Td>
@@ -701,6 +813,18 @@ function chartHasData(series: ChartSeries[]): boolean {
   return series.some((s) => s.values.some((v) => v != null));
 }
 
+// Passos "humanos" de duração em segundos pra grade do eixo Y de latência —
+// evita marcas tortas tipo 0h47min. Escolhe o menor passo cujo ×3 cobre o máx,
+// e devolve [0, p, 2p, 3p].
+const DUR_STEPS = [
+  60, 300, 600, 1800, 3600, 2 * 3600, 6 * 3600, 12 * 3600,
+  24 * 3600, 48 * 3600, 72 * 3600, 168 * 3600, 336 * 3600, 720 * 3600,
+];
+function niceDurationTicks(maxSeconds: number): number[] {
+  const step = DUR_STEPS.find((s) => s * 3 >= maxSeconds) ?? DUR_STEPS[DUR_STEPS.length - 1];
+  return [0, step, step * 2, step * 3];
+}
+
 // Gráfico de linhas multi-série. Quebra a linha em `null` (vira gap). Pontos
 // têm <title> nativo pra tooltip. Cores via classe Tailwind (dark-aware).
 function LineChart({
@@ -709,6 +833,7 @@ function LineChart({
   height = 170,
   formatY = (n) => String(Math.round(n)),
   formatTip,
+  yTicks,
 }: {
   series: ChartSeries[];
   xLabels: string[];
@@ -717,6 +842,9 @@ function LineChart({
   // cai no formatY se não informado.
   formatY?: (n: number) => string;
   formatTip?: (n: number) => string;
+  // yTicks: marcas explícitas no eixo Y (ex.: durações redondas). Sem isso, usa
+  // 0/meio/máx automático.
+  yTicks?: number[];
 }) {
   const tip = formatTip ?? formatY;
   const W = 640;
@@ -729,7 +857,7 @@ function LineChart({
   const n = xLabels.length;
 
   const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
-  const maxV = Math.max(1, ...all);
+  const maxV = Math.max(1, ...all, ...(yTicks ?? []));
 
   const xAt = (i: number) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
   const yAt = (v: number) => padT + innerH - (v / maxV) * innerH;
@@ -753,14 +881,15 @@ function LineChart({
   const ticks = Array.from({ length: n }, (_, i) => i).filter(
     (i) => i % step === 0 || i === n - 1,
   );
-  const grid = [0, 0.5, 1];
+  // Marcas do eixo Y: explícitas (yTicks) ou 0/meio/máx automático.
+  const gridVals = yTicks ?? [0, maxV / 2, maxV];
 
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full" role="img" aria-label="Gráfico de linha">
-      {grid.map((g) => {
-        const y = padT + innerH - g * innerH;
+      {gridVals.map((gv) => {
+        const y = yAt(gv);
         return (
-          <g key={g}>
+          <g key={gv}>
             <line
               x1={padL}
               y1={y}
@@ -769,8 +898,8 @@ function LineChart({
               className="stroke-gray-200 dark:stroke-gray-800"
               strokeWidth={1}
             />
-            <text x={padL - 6} y={y + 3} textAnchor="end" className="fill-gray-400 text-[10px]">
-              {formatY(g * maxV)}
+            <text x={padL - 6} y={y + 3} textAnchor="end" className="fill-gray-500 text-[10px]">
+              {formatY(gv)}
             </text>
           </g>
         );
@@ -781,7 +910,7 @@ function LineChart({
           x={xAt(i)}
           y={height - 6}
           textAnchor="middle"
-          className="fill-gray-400 text-[10px]"
+          className="fill-gray-500 text-[10px]"
         >
           {xLabels[i]}
         </text>
@@ -861,6 +990,8 @@ function PainelTrends() {
   ];
   const latArrivalSync = latSeries("lat_arrival_sync_p50_s", "lat_arrival_sync_p95_s");
   const latSyncImport = latSeries("lat_sync_import_p50_s", "lat_sync_import_p95_s");
+  const latMax = (s: ChartSeries[]) =>
+    Math.max(0, ...s.flatMap((x) => x.values).filter((v): v is number => v != null));
 
   const rangePills = (
     <div className="flex gap-1">
@@ -898,7 +1029,7 @@ function PainelTrends() {
               formatTip={(n) => fmtFull(Math.round(n))}
             />
             <ChartLegend series={volumeSeries} />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-xs text-gray-500">
               Notas por dia em que cada etapa ocorreu (fluxo, não estoque).
             </p>
           </>
@@ -914,9 +1045,16 @@ function PainelTrends() {
           <EmptyState className="py-4">Sem transições no período.</EmptyState>
         ) : (
           <>
-            <LineChart series={latArrivalSync} xLabels={xLabels} formatY={(n) => fmtDur(Math.round(n))} />
+            <LineChart
+              series={latArrivalSync}
+              xLabels={xLabels}
+              formatY={(n) => fmtDur(Math.round(n))}
+              yTicks={niceDurationTicks(latMax(latArrivalSync))}
+            />
             <ChartLegend series={latArrivalSync} />
-            <p className="mt-1 text-xs text-gray-400">Os últimos dias podem ser parciais.</p>
+            <p className="mt-1 text-xs text-gray-500">
+              Reflete o backlog de sincronização. Os últimos dias podem ser parciais.
+            </p>
           </>
         )}
       </PainelCard>
@@ -930,9 +1068,14 @@ function PainelTrends() {
           <EmptyState className="py-4">Sem transições no período.</EmptyState>
         ) : (
           <>
-            <LineChart series={latSyncImport} xLabels={xLabels} formatY={(n) => fmtDur(Math.round(n))} />
+            <LineChart
+              series={latSyncImport}
+              xLabels={xLabels}
+              formatY={(n) => fmtDur(Math.round(n))}
+              yTicks={niceDurationTicks(latMax(latSyncImport))}
+            />
             <ChartLegend series={latSyncImport} />
-            <p className="mt-1 text-xs text-gray-400">Os últimos dias podem ser parciais.</p>
+            <p className="mt-1 text-xs text-gray-500">Os últimos dias podem ser parciais.</p>
           </>
         )}
       </PainelCard>
@@ -1118,9 +1261,28 @@ function PainelView({
   );
 }
 
-// Visão por empresa: uma linha por (empresa, filial) + a linha "Sem empresa",
-// ordenada por pendentes desc (sem-empresa fixada por último). Drill-down
-// reusa os filtros de URL da aba Notas.
+type EmpSortKey = "pendentes" | "arrived" | "synced" | "pending_import" | "stuck" | "lost" | "imported";
+
+// Colunas numéricas da tabela de Empresas, com rótulo curto + tooltip (o
+// cabeçalho é abreviado por espaço) + tom de cor. Ordem = ordem na tabela.
+const EMP_COLS: { key: EmpSortKey; label: string; title: string; tone?: "danger" | "warn" }[] = [
+  { key: "pendentes", label: "Pendentes", title: "Chegou + sincronizado + aguardando + travada" },
+  { key: "arrived", label: "A sinc.", title: "A sincronizar", tone: "warn" },
+  { key: "synced", label: "Sincr.", title: "Sincronizadas" },
+  { key: "pending_import", label: "Aguard.", title: "Aguardando importação" },
+  { key: "stuck", label: "Travadas", title: "Travadas", tone: "danger" },
+  { key: "lost", label: "Sumidas", title: "Sumidas", tone: "danger" },
+  { key: "imported", label: "Importadas", title: "Importadas (acumulado histórico)" },
+];
+
+function empValue(e: EmpresaAgg, key: EmpSortKey): number {
+  if (key === "pendentes") return e.arrived + e.synced + e.pending_import + e.stuck;
+  return e[key];
+}
+
+// Visão por empresa: uma linha por (empresa, filial) + a linha "Sem empresa"
+// (sempre fixada por último). Ordenável por qualquer coluna numérica (default
+// pendentes desc). Drill-down reusa os filtros de URL da aba Notas.
 function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
   const [search, setSearch] = useState("");
   const debounced = useDebounced(search.trim(), 300);
@@ -1133,15 +1295,23 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
     placeholderData: (prev) => prev,
   });
 
+  const [sort, setSort] = useState<{ key: EmpSortKey; dir: "asc" | "desc" }>({
+    key: "pendentes",
+    dir: "desc",
+  });
+  const toggleSort = (key: EmpSortKey) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
+
   const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import + e.stuck;
   const rows = [...(q.data?.items ?? [])].sort((a, b) => {
     const aNo = a.codigo_empresa == null;
     const bNo = b.codigo_empresa == null;
     if (aNo !== bNo) return aNo ? 1 : -1; // "Sem empresa" sempre por último
-    return pend(b) - pend(a);
+    const diff = empValue(b, sort.key) - empValue(a, sort.key);
+    return sort.dir === "desc" ? diff : -diff;
   });
 
-  const numCols = 8;
+  const numCols = 2 + EMP_COLS.length; // Empresa + colunas numéricas + chevron
   const cell = (n: number, tone?: "danger" | "warn") =>
     n === 0 ? (
       <span className="text-gray-300 dark:text-gray-600">0</span>
@@ -1167,16 +1337,32 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
           {q.isFetching ? "Atualizando…" : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
         </span>
       </div>
-      <Table>
-      <THead>
+      <Table stickyHeader>
+      <THead sticky>
         <Th>Empresa</Th>
-        <Th className="text-right" title="Chegou + sincronizado + aguardando + travada">Pendentes</Th>
-        <Th className="text-right">A sinc.</Th>
-        <Th className="text-right">Sincr.</Th>
-        <Th className="text-right">Aguard.</Th>
-        <Th className="text-right">Travadas</Th>
-        <Th className="text-right">Sumidas</Th>
-        <Th className="text-right">Importadas</Th>
+        {EMP_COLS.map((col) => {
+          const active = sort.key === col.key;
+          return (
+            <Th key={col.key} className="text-right">
+              <button
+                type="button"
+                onClick={() => toggleSort(col.key)}
+                title={col.title}
+                className={`ml-auto inline-flex items-center gap-1 uppercase tracking-wider ${active ? "text-gray-700 dark:text-gray-200" : "hover:text-gray-700 dark:hover:text-gray-300"}`}
+              >
+                {col.label}
+                {active ? (
+                  sort.dir === "desc" ? (
+                    <ChevronDown className="h-3 w-3" aria-hidden />
+                  ) : (
+                    <ChevronUp className="h-3 w-3" aria-hidden />
+                  )
+                ) : null}
+              </button>
+            </Th>
+          );
+        })}
+        <Th className="w-8" aria-label="Abrir" />
       </THead>
       <TBody>
         {rows.map((e) => {
@@ -1184,7 +1370,8 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
           return (
             <Tr
               key={isNoEmpresa ? "sem-empresa" : `${e.codigo_empresa}-${e.codigo_filial ?? "x"}`}
-              className="cursor-pointer"
+              className="group cursor-pointer"
+              title="Ver notas desta empresa"
               onClick={() => onDrill(e)}
             >
               <Td className="max-w-[280px] truncate text-gray-700 dark:text-gray-300" title={e.nome_empresa}>
@@ -1194,16 +1381,26 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
                   e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`
                 )}
               </Td>
-              <Td className="text-right font-semibold text-gray-900 dark:text-gray-100">
-                <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
-              </Td>
-              <Td className="text-right">{cell(e.arrived, "warn")}</Td>
-              <Td className="text-right">{cell(e.synced)}</Td>
-              <Td className="text-right">{cell(e.pending_import)}</Td>
-              <Td className="text-right">{cell(e.stuck, "danger")}</Td>
-              <Td className="text-right">{cell(e.lost, "danger")}</Td>
-              <Td className="text-right text-gray-500">
-                <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+              {EMP_COLS.map((col) =>
+                col.key === "pendentes" ? (
+                  <Td key={col.key} className="text-right font-semibold text-gray-900 dark:text-gray-100">
+                    <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
+                  </Td>
+                ) : col.key === "imported" ? (
+                  <Td key={col.key} className="text-right text-gray-500">
+                    <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+                  </Td>
+                ) : (
+                  <Td key={col.key} className="text-right">
+                    {cell(empValue(e, col.key), col.tone)}
+                  </Td>
+                ),
+              )}
+              <Td className="text-right">
+                <ChevronRight
+                  className="ml-auto h-4 w-4 text-gray-300 transition group-hover:text-rps-olive-dark dark:text-gray-600"
+                  aria-hidden
+                />
               </Td>
             </Tr>
           );
