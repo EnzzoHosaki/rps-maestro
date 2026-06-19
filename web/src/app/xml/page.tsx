@@ -129,25 +129,58 @@ function FreshnessIndicator({
   );
 }
 
-// Botão de copiar (ação passiva — não altera dado). Mostra um check por ~1.2s.
+// Copia texto para a área de transferência. navigator.clipboard só funciona em
+// HTTPS; usa o fallback de execCommand em HTTP (produção interna).
+function copyText(text: string): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    document.body.appendChild(el);
+    el.focus();
+    el.select();
+    try {
+      if (document.execCommand("copy")) { resolve(); } else { reject(new Error("execCommand failed")); }
+    } catch (e) {
+      reject(e);
+    } finally {
+      document.body.removeChild(el);
+    }
+  });
+}
+
+// Botão de copiar (ação passiva). Mostra "Copiado" por ~1.5s após sucesso.
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    copyText(text)
+      .then(() => {
+        setDone(true);
+        setTimeout(() => setDone(false), 1500);
+      })
+      .catch(() => {/* silencia — nada a fazer */});
+  };
   return (
     <button
       type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        navigator.clipboard?.writeText(text).then(() => {
-          setDone(true);
-          setTimeout(() => setDone(false), 1200);
-        });
-      }}
+      onClick={copy}
       title={`Copiar ${label}`}
       aria-label={`Copiar ${label}`}
-      className="shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-rps-olive-dark focus:opacity-100 group-hover:opacity-100"
+      className={`inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-xs transition
+        ${done
+          ? "text-rps-olive-dark"
+          : "text-gray-400 opacity-0 hover:text-rps-olive-dark focus:opacity-100 group-hover:opacity-100"
+        }`}
     >
       {done ? (
-        <Check className="h-3.5 w-3.5 text-rps-olive-dark" aria-hidden />
+        <>
+          <Check className="h-3.5 w-3.5" aria-hidden />
+          <span className="font-medium">Copiado</span>
+        </>
       ) : (
         <Copy className="h-3.5 w-3.5" aria-hidden />
       )}
@@ -222,6 +255,13 @@ function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
 
+// Retorna o timestamp mais recente disponível (o "último evento" da nota),
+// independente do status atual. Evita mostrar "—" em notas que ainda não foram
+// importadas mas já têm eventos de chegada/sincronização.
+function lastEventTs(n: { arrived_at?: string; synced_at?: string; imported_at?: string }): string {
+  return fmtTs(n.imported_at ?? n.synced_at ?? n.arrived_at);
+}
+
 function fmtBRL(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -274,6 +314,12 @@ function XmlPageContent() {
   const [to, setTo] = useState(() => sp.get("to") ?? "");
   const [offset, setOffset] = useState(() => Number(sp.get("offset")) || 0);
   const [selected, setSelected] = useState<string | null>(null);
+  type NotasSortKey = "chave" | "numero" | "tipo" | "empresa" | "emitente" | "status" | "evento";
+  const [notasSort, setNotasSort] = useState<{ key: NotasSortKey; dir: "asc" | "desc" } | null>(null);
+  const toggleNotasSort = (key: NotasSortKey) =>
+    setNotasSort((s) =>
+      s?.key === key ? (s.dir === "asc" ? null : { key, dir: "asc" }) : { key, dir: "desc" },
+    );
 
   // Espelha os filtros na URL (sem navegar/refetch): URL compartilhável e
   // base pro drill-down por empresa do Bloco C1.
@@ -331,7 +377,26 @@ function XmlPageContent() {
 
   const ov = overview.data;
   const total = list.data?.total ?? 0;
-  const items = list.data?.items ?? [];
+  const rawItems = list.data?.items ?? [];
+  // Status ordering for sort: pipeline stage order.
+  const STATUS_ORDER: Record<NotaStatus, number> = {
+    arrived: 0, synced: 1, pending_import: 2, imported: 3, import_ignored: 4, stuck: 5, lost: 6,
+  };
+  const items = notasSort
+    ? [...rawItems].sort((a, b) => {
+        const dir = notasSort.dir === "asc" ? 1 : -1;
+        switch (notasSort.key) {
+          case "chave":   return dir * a.chave_acesso.localeCompare(b.chave_acesso);
+          case "numero":  return dir * (a.numero_nota ?? "").localeCompare(b.numero_nota ?? "");
+          case "tipo":    return dir * a.doc_type.localeCompare(b.doc_type);
+          case "empresa": return dir * (a.nome_empresa ?? "").localeCompare(b.nome_empresa ?? "");
+          case "emitente":return dir * (a.nome_emitente ?? "").localeCompare(b.nome_emitente ?? "");
+          case "status":  return dir * ((STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
+          case "evento":  return dir * ((a.imported_at ?? a.synced_at ?? a.arrived_at ?? "").localeCompare(b.imported_at ?? b.synced_at ?? b.arrived_at ?? ""));
+          default:        return 0;
+        }
+      })
+    : rawItems;
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -350,6 +415,33 @@ function XmlPageContent() {
 
   // Limpa o filtro de empresa (código, filial e o bucket "sem empresa").
   function clearEmpresaFilter() {
+    setCodigoEmpresa(null);
+    setCodigoFilial(null);
+    setSemEmpresa(false);
+    setOffset(0);
+  }
+
+  // Há algum filtro ativo além dos defaults?
+  const hasFilters =
+    statusFilter !== "all" ||
+    docFilter !== "all" ||
+    q !== "" ||
+    empresa !== "" ||
+    cnpj !== "" ||
+    from !== "" ||
+    to !== "" ||
+    codigoEmpresa != null ||
+    codigoFilial != null ||
+    semEmpresa;
+
+  function clearAllFilters() {
+    setStatusFilter("all");
+    setDocFilter("all");
+    setQ("");
+    setEmpresa("");
+    setCnpj("");
+    setFrom("");
+    setTo("");
     setCodigoEmpresa(null);
     setCodigoFilial(null);
     setSemEmpresa(false);
@@ -531,15 +623,27 @@ function XmlPageContent() {
           placeholder="Buscar por chave de acesso…"
           className="min-w-[280px] flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
-        <span className="text-sm text-gray-500">
-          {list.isFetching ? (
-            "Atualizando…"
-          ) : (
-            <span title={fmtFull(total)}>
-              {fmtCompact(total)} nota{total === 1 ? "" : "s"}
-            </span>
+        <div className="flex items-center gap-3 ml-auto">
+          <span className="text-sm text-gray-500">
+            {list.isFetching ? (
+              "Atualizando…"
+            ) : (
+              <span title={fmtFull(total)}>
+                {fmtCompact(total)} nota{total === 1 ? "" : "s"}
+              </span>
+            )}
+          </span>
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-red-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+            >
+              <X className="h-3 w-3" aria-hidden />
+              Limpar filtros
+            </button>
           )}
-        </span>
+        </div>
       </div>
 
       {/* Filtros: empresa, cnpj, data */}
@@ -595,13 +699,28 @@ function XmlPageContent() {
       {/* Tabela */}
       <Table stickyHeader>
         <THead sticky>
-          <Th>Chave</Th>
-          <Th>Número</Th>
-          <Th>Tipo</Th>
-          <Th>Empresa</Th>
-          <Th>Emitente</Th>
-          <Th>Status</Th>
-          <Th>Importação</Th>
+          {(
+            [
+              { key: "chave",    label: "Chave" },
+              { key: "numero",   label: "Número" },
+              { key: "tipo",     label: "Tipo" },
+              { key: "empresa",  label: "Empresa" },
+              { key: "emitente", label: "Emitente" },
+              { key: "status",   label: "Status" },
+              { key: "evento",   label: "Último evento", title: "Data do evento mais recente (chegada, sincronização ou importação)" },
+            ] as { key: "chave"|"numero"|"tipo"|"empresa"|"emitente"|"status"|"evento"; label: string; title?: string }[]
+          ).map(({ key, label, title }) => (
+            <Th key={key} title={title}>
+              <button
+                type="button"
+                onClick={() => toggleNotasSort(key)}
+                className={`inline-flex items-center gap-1 uppercase tracking-wider ${notasSort?.key === key ? "text-gray-700 dark:text-gray-200" : "hover:text-gray-700 dark:hover:text-gray-300"}`}
+              >
+                {label}
+                <SortIcon active={notasSort?.key === key} dir={notasSort?.dir} />
+              </button>
+            </Th>
+          ))}
         </THead>
         <TBody>
           {items.map((n) => (
@@ -642,7 +761,7 @@ function XmlPageContent() {
               <Td>
                 <Badge className={XML_STATUS_STYLE[n.status]}>{XML_STATUS_LABEL[n.status]}</Badge>
               </Td>
-              <Td className="text-xs text-gray-500">{fmtTs(n.imported_at)}</Td>
+              <Td className="text-xs text-gray-500">{lastEventTs(n)}</Td>
             </Tr>
           ))}
           {list.isError && items.length === 0 && (
@@ -1331,7 +1450,15 @@ function PainelView({
   );
 }
 
-type EmpSortKey = "pendentes" | "arrived" | "synced" | "pending_import" | "stuck" | "lost" | "imported";
+// Ícone de ordenação reutilizado nas duas tabelas.
+function SortIcon({ active, dir }: { active: boolean; dir?: "asc" | "desc" }) {
+  if (!active) return null;
+  return dir === "asc"
+    ? <ChevronUp className="h-3 w-3" aria-hidden />
+    : <ChevronDown className="h-3 w-3" aria-hidden />;
+}
+
+type EmpSortKey = "empresa" | "pendentes" | "arrived" | "synced" | "pending_import" | "stuck" | "lost" | "imported";
 
 // Colunas numéricas da tabela de Empresas, com rótulo curto + tooltip (o
 // cabeçalho é abreviado por espaço) + tom de cor. Ordem = ordem na tabela.
@@ -1345,7 +1472,8 @@ const EMP_COLS: { key: EmpSortKey; label: string; title: string; tone?: "danger"
   { key: "imported", label: "Importadas", title: "Importadas (acumulado histórico)" },
 ];
 
-function empValue(e: EmpresaAgg, key: EmpSortKey): number {
+function empValue(e: EmpresaAgg, key: EmpSortKey): number | string {
+  if (key === "empresa") return e.nome_empresa ?? "";
   if (key === "pendentes") return e.arrived + e.synced + e.pending_import + e.stuck;
   return e[key];
 }
@@ -1355,7 +1483,9 @@ function empValue(e: EmpresaAgg, key: EmpSortKey): number {
 // pendentes desc). Drill-down reusa os filtros de URL da aba Notas.
 function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
   const [search, setSearch] = useState("");
-  const debounced = useDebounced(search.trim(), 300);
+  // 150ms: mais responsivo que 300ms; o backend /empresas com ?q= é leve pois
+  // retorna apenas matches parciais por nome (não todas as empresas).
+  const debounced = useDebounced(search.trim(), 150);
   const q = useQuery({
     // Busca por nome via API (?q=, parcial/case-insensitive). Mantém limit:0
     // (todas as linhas) + sort/paginação client-side de sempre.
@@ -1377,8 +1507,21 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
     const aNo = a.codigo_empresa == null;
     const bNo = b.codigo_empresa == null;
     if (aNo !== bNo) return aNo ? 1 : -1; // "Sem empresa" sempre por último
-    const diff = empValue(b, sort.key) - empValue(a, sort.key);
-    return sort.dir === "desc" ? diff : -diff;
+    const av = empValue(a, sort.key);
+    const bv = empValue(b, sort.key);
+    // Para strings: localeCompare retorna <0 se av<bv (av "vem antes" na ordem A→Z).
+    // "desc" = Z→A → negar; "asc" = A→Z → direto.
+    // Para números: diff = bv-av → positivo se bv>av (bv na frente = desc).
+    // "desc" = maior primeiro → usar diff; "asc" → negar.
+    const diff =
+      typeof av === "string" && typeof bv === "string"
+        ? sort.dir === "desc"
+          ? bv.localeCompare(av)   // Z→A
+          : av.localeCompare(bv)   // A→Z
+        : sort.dir === "desc"
+          ? (bv as number) - (av as number)
+          : (av as number) - (bv as number);
+    return diff;
   });
 
   const numCols = 2 + EMP_COLS.length; // Empresa + colunas numéricas + chevron
@@ -1404,12 +1547,24 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
           className="w-72 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
         <span className="text-sm text-gray-500">
-          {q.isFetching ? "Atualizando…" : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
+          {search.trim() !== debounced || q.isFetching
+            ? "Buscando…"
+            : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
         </span>
       </div>
       <Table stickyHeader>
       <THead sticky>
-        <Th>Empresa</Th>
+        {/* Empresa também é ordenável (A→Z / Z→A) */}
+        <Th>
+          <button
+            type="button"
+            onClick={() => toggleSort("empresa")}
+            className={`inline-flex items-center gap-1 uppercase tracking-wider ${sort.key === "empresa" ? "text-gray-700 dark:text-gray-200" : "hover:text-gray-700 dark:hover:text-gray-300"}`}
+          >
+            Empresa
+            <SortIcon active={sort.key === "empresa"} dir={sort.dir} />
+          </button>
+        </Th>
         {EMP_COLS.map((col) => {
           const active = sort.key === col.key;
           return (
@@ -1421,13 +1576,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
                 className={`ml-auto inline-flex items-center gap-1 uppercase tracking-wider ${active ? "text-gray-700 dark:text-gray-200" : "hover:text-gray-700 dark:hover:text-gray-300"}`}
               >
                 {col.label}
-                {active ? (
-                  sort.dir === "desc" ? (
-                    <ChevronDown className="h-3 w-3" aria-hidden />
-                  ) : (
-                    <ChevronUp className="h-3 w-3" aria-hidden />
-                  )
-                ) : null}
+                <SortIcon active={active} dir={sort.dir} />
               </button>
             </Th>
           );
@@ -1462,7 +1611,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
                   </Td>
                 ) : (
                   <Td key={col.key} className="text-right">
-                    {cell(empValue(e, col.key), col.tone)}
+                    {cell(empValue(e, col.key) as number, col.tone)}
                   </Td>
                 ),
               )}
