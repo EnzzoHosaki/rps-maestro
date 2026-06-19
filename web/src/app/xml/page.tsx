@@ -152,6 +152,41 @@ function copyText(text: string): Promise<void> {
   });
 }
 
+// Overlay de carregamento sobre uma tabela com placeholderData. Mantém os dados
+// antigos visíveis mas com opacidade reduzida + spinner, indicando atualização.
+// Não aparece no primeiro load (isLoading) — nesses casos os SkeletonRows já
+// cuidam. Só aparece em re-fetches com dados anteriores presentes (isFetching).
+function TableLoadingOverlay({ isFetching }: { isFetching: boolean }) {
+  if (!isFetching) return null;
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-white/60 dark:bg-gray-900/60"
+      aria-hidden
+    >
+      <div className="flex items-center gap-2 rounded-full bg-white dark:bg-gray-900 px-3 py-1.5 shadow-md">
+        <svg
+          className="h-4 w-4 animate-spin text-rps-olive-dark"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            className="opacity-25"
+            cx="12" cy="12" r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          />
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"
+          />
+        </svg>
+        <span className="text-xs font-medium text-rps-olive-dark">Atualizando…</span>
+      </div>
+    </div>
+  );
+}
+
 // Botão de copiar (ação passiva). Mostra "Copiado" por ~1.5s após sucesso.
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
@@ -696,7 +731,9 @@ function XmlPageContent() {
         </div>
       )}
 
-      {/* Tabela */}
+      {/* Tabela — envolta em relative para o overlay de loading */}
+      <div className="relative">
+        <TableLoadingOverlay isFetching={list.isFetching && !list.isLoading} />
       <Table stickyHeader>
         <THead sticky>
           {(
@@ -773,6 +810,7 @@ function XmlPageContent() {
           {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={7} />)}
         </TBody>
       </Table>
+      </div>{/* /relative */}
 
       {total > 0 && (
         <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
@@ -1552,6 +1590,8 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
             : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
         </span>
       </div>
+      <div className="relative">
+        <TableLoadingOverlay isFetching={q.isFetching && !q.isLoading} />
       <Table stickyHeader>
       <THead sticky>
         {/* Empresa também é ordenável (A→Z / Z→A) */}
@@ -1635,6 +1675,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
         {q.isLoading && Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={numCols} />)}
       </TBody>
       </Table>
+      </div>{/* /relative */}
     </div>
   );
 }
