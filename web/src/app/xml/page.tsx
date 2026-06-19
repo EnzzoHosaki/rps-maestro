@@ -969,11 +969,20 @@ const VOLUME_META = [
   { key: "import_ignored", label: "Ignorada", strokeCls: "stroke-gray-400", fillCls: "fill-gray-400", swatchCls: "bg-gray-400" },
 ] as const;
 
-// Tendência ao longo do tempo (série temporal do tracker). Volume/dia (4 linhas)
-// + latência/dia por transição (p50/p95). Range 7/30/90d controla as 3 queries
-// de uma vez (um único fetch). Bucket fixo em "day" na v2.
+// Tendência ao longo do tempo (série temporal do tracker). Volume/dia (4 linhas
+// com legenda clicável pra ligar/desligar séries) + latência/dia (p50/p95).
+// Range 7/30/90d controla as 3 queries de uma vez. Bucket fixo em "day".
 function PainelTrends() {
   const [range, setRange] = useState<TimeseriesRange>("30d");
+  // Séries ocultas no gráfico de volume. O usuário pode desligar "Importada"
+  // (que domina a escala) pra comparar as linhas menores.
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+  const toggleSeries = (label: string) =>
+    setHiddenSeries((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) { next.delete(label); } else { next.add(label); }
+      return next;
+    });
   const q = useQuery({
     queryKey: ["xml", "timeseries", range],
     queryFn: () => xmlMetricsApi.timeseries(range, "day").then((r) => r.data),
@@ -984,13 +993,19 @@ function PainelTrends() {
   const buckets = q.data?.buckets ?? [];
   const xLabels = buckets.map((b) => ddmm(b.date));
 
-  const volumeSeries: ChartSeries[] = VOLUME_META.map((m) => ({
+  const allVolumeSeries: ChartSeries[] = VOLUME_META.map((m) => ({
     label: m.label,
     strokeCls: m.strokeCls,
     fillCls: m.fillCls,
     swatchCls: m.swatchCls,
     values: buckets.map((b) => b[m.key]),
   }));
+  // Séries visíveis (ocultas viram null → gap, não poluem a escala)
+  const volumeSeries: ChartSeries[] = allVolumeSeries.map((s) =>
+    hiddenSeries.has(s.label)
+      ? { ...s, values: s.values.map(() => null) }
+      : s,
+  );
 
   const latSeries = (p50Key: keyof (typeof buckets)[number], p95Key: keyof (typeof buckets)[number]): ChartSeries[] => [
     { label: "p50", strokeCls: "stroke-rps-olive-dark", fillCls: "fill-rps-olive-dark", swatchCls: "bg-rps-olive-dark", values: buckets.map((b) => b[p50Key] as number | null) },
@@ -1036,9 +1051,30 @@ function PainelTrends() {
               formatY={(n) => fmtCompact(Math.round(n))}
               formatTip={(n) => fmtFull(Math.round(n))}
             />
-            <ChartLegend series={volumeSeries} />
+            {/* Legenda clicável — ligar/desligar séries. "Importada" domina a
+                escala; o usuário pode desligá-la pra comparar as menores. */}
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {allVolumeSeries.map((s) => {
+                const off = hiddenSeries.has(s.label);
+                return (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => toggleSeries(s.label)}
+                    aria-pressed={!off}
+                    title={off ? `Mostrar ${s.label}` : `Ocultar ${s.label}`}
+                    className={`inline-flex items-center gap-1.5 text-xs transition-opacity ${off ? "opacity-40" : ""}`}
+                  >
+                    <span className={`inline-block h-2 w-2 rounded-sm ${off ? "bg-gray-300 dark:bg-gray-600" : s.swatchCls}`} />
+                    <span className={off ? "text-gray-400 dark:text-gray-500 line-through" : "text-gray-500 dark:text-gray-400"}>
+                      {s.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             <p className="mt-1 text-xs text-gray-500">
-              Notas por dia em que cada etapa ocorreu (fluxo, não estoque).
+              Notas por dia em que cada etapa ocorreu (fluxo, não estoque). Clique na legenda pra ocultar séries.
             </p>
           </>
         )}
@@ -1091,6 +1127,25 @@ function PainelTrends() {
   );
 }
 
+// Badge "principal gargalo" — deriva o maior status de backlog da linha sem
+// nova coluna. Só aparece quando há pendências reais. Transparente: o usuário
+// consegue conferir o valor na aba Empresas.
+function GargaloBadge({ e }: { e: EmpresaAgg }) {
+  const candidates: { key: keyof EmpresaAgg; label: string }[] = [
+    { key: "pending_import", label: "Aguardando importação" },
+    { key: "arrived", label: "A sincronizar" },
+    { key: "synced", label: "Sincronizada" },
+  ];
+  const best = candidates.reduce(
+    (a, c) => ((e[c.key] as number) > (e[a.key] as number) ? c : a),
+    candidates[0],
+  );
+  if ((e[best.key] as number) === 0) return null;
+  return (
+    <span className="text-[11px] text-gray-400 dark:text-gray-500">{best.label}</span>
+  );
+}
+
 // Painel: visão de gráficos do tracker. Snapshot (overview + empresas) +
 // tendência por dia (série temporal). Blocos: distribuição por status (barras
 // clicáveis → filtra Notas), latências p50/p95 atuais, empresas com mais notas
@@ -1134,6 +1189,7 @@ function PainelView({
     .sort((a, b) => pend(b) - pend(a))
     .slice(0, 10);
   const maxPend = Math.max(1, ...topEmpresas.map(pend));
+  const totalPend = topEmpresas.reduce((a, e) => a + pend(e), 0) || 1;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -1239,15 +1295,18 @@ function PainelView({
                   className="flex w-full items-center gap-3 text-left"
                   title="Ver notas desta empresa"
                 >
-                  <span
-                    className="w-56 shrink-0 truncate text-sm text-gray-700 dark:text-gray-300"
-                    title={e.nome_empresa}
-                  >
-                    {e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`}
+                  <span className="min-w-0 flex-1 space-y-0.5">
+                    <span
+                      className="block truncate text-sm text-gray-700 dark:text-gray-300"
+                      title={e.nome_empresa}
+                    >
+                      {e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`}
+                    </span>
+                    <GargaloBadge e={e} />
                   </span>
                   <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
                     <div
-                      className="h-full rounded-full bg-amber-400"
+                      className="h-full rounded-full bg-rps-olive-dark"
                       style={{ width: `${(pend(e) / maxPend) * 100}%` }}
                     />
                   </div>
@@ -1256,6 +1315,9 @@ function PainelView({
                     className="w-14 shrink-0 cursor-help text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300"
                   >
                     {fmtCompact(pend(e))}
+                  </span>
+                  <span className="w-10 shrink-0 text-right text-xs text-gray-400 tabular-nums">
+                    {Math.round((pend(e) / totalPend) * 100)}%
                   </span>
                 </button>
               </li>
