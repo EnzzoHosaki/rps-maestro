@@ -4,7 +4,8 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, User } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, User, RadioTower } from "lucide-react";
+import Link from "next/link";
 import {
   notasApi,
   xmlMetricsApi,
@@ -523,9 +524,15 @@ function XmlPageContent() {
 
   return (
     <div className="space-y-5">
-      {/* Frescor dos dados (data observability) — responde "os dados estão
-          atualizados?" sem depender de backend novo. */}
-      <div className="flex justify-end">
+      {/* Frescor dos dados + acesso ao status dos serviços do tracker */}
+      <div className="flex items-center justify-between">
+        <Link
+          href="/xml/status"
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors shadow-sm"
+        >
+          <RadioTower className="h-3.5 w-3.5" aria-hidden />
+          Status do tracker
+        </Link>
         <FreshnessIndicator
           updatedAt={overview.dataUpdatedAt}
           isFetching={overview.isFetching}
