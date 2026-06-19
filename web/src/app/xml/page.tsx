@@ -4,7 +4,8 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, User } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower } from "lucide-react";
+import Link from "next/link";
 import {
   notasApi,
   xmlMetricsApi,
@@ -226,14 +227,10 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 // Badge "via robô / manual" — só aparece em notas com status imported.
 // via_robo undefined = campo não presente (status ≠ imported), não renderiza.
 function ViaRoboBadge({ via_robo }: { via_robo?: boolean }) {
-  if (via_robo === undefined) return null;
-  return via_robo ? (
+  if (!via_robo) return null;
+  return (
     <span className="inline-flex items-center gap-1 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">
       <Bot className="h-3 w-3" aria-hidden /> Robô
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-      <User className="h-3 w-3" aria-hidden /> Manual
     </span>
   );
 }
@@ -523,9 +520,15 @@ function XmlPageContent() {
 
   return (
     <div className="space-y-5">
-      {/* Frescor dos dados (data observability) — responde "os dados estão
-          atualizados?" sem depender de backend novo. */}
-      <div className="flex justify-end">
+      {/* Frescor dos dados + acesso ao status dos serviços do tracker */}
+      <div className="flex items-center justify-between">
+        <Link
+          href="/xml/status"
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors shadow-sm"
+        >
+          <RadioTower className="h-3.5 w-3.5" aria-hidden />
+          Status do tracker
+        </Link>
         <FreshnessIndicator
           updatedAt={overview.dataUpdatedAt}
           isFetching={overview.isFetching}
