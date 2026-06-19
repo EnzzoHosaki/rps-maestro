@@ -205,6 +205,14 @@ function fmtDur(s?: number): string {
   if (s == null) return "—";
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.round(s / 60)} min`;
+  // A partir de ~2 dias, mostrar em dias (ex.: 504h → "21d", 484h → "20d 4h") —
+  // mais legível que "horas grandes" em latências de backlog.
+  if (s >= 48 * 3600) {
+    const wholeH = Math.round(s / 3600);
+    const d = Math.floor(wholeH / 24);
+    const h = wholeH % 24;
+    return h ? `${d}d ${h}h` : `${d}d`;
+  }
   const h = Math.floor(s / 3600);
   const m = Math.round((s % 3600) / 60);
   return m ? `${h}h ${m}min` : `${h}h`;
