@@ -42,6 +42,9 @@ export type NotaStatus =
 export interface Nota {
   chave_acesso: string;
   numero_nota?: string; // nNF derivado da chave; vazio p/ NFSe
+  // Presente em notas importadas: true = importado por robô (DATAROBO no Athenas),
+  // false = importado manualmente. Undefined/ausente = status não é "imported".
+  via_robo?: boolean;
   doc_type: DocType;
   status: NotaStatus;
   codigo_empresa?: number;
@@ -183,6 +186,44 @@ export const empresasApi = {
     if (opts.q) params.q = opts.q; // busca parcial por nome, case-insensitive (backend)
     return xmlApi.get<{ items: EmpresaAgg[]; total: number }>("/empresas", { params });
   },
+};
+
+// ── Status dos serviços do tracker ───────────────────────────────────────────
+
+export interface PollerPayload {
+  poll_checked: number;
+  poll_imported: number;
+  poll_ignored: number;
+  poll_pending: number;
+  sweep_found: number;
+  sweep_emitted: number;
+  sweep_skipped: number;
+  batch: number;
+  sweep_interval_s: number;
+  sweep_window_h: number;
+}
+
+export interface AgentPayload {
+  agent_name: string;
+  scan_type: string;
+  escaneados: number;
+  novos: number;
+  emitidos: number;
+  sem_chave: number;
+}
+
+// Union discriminada por "service" — garante tipagem correta ao acessar payload.
+export type ServiceStatus =
+  | { service: "poller"; last_beat: string; seconds_ago: number; online: boolean; payload: PollerPayload }
+  | { service: "agent"; last_beat: string; seconds_ago: number; online: boolean; payload: AgentPayload }
+  | { service: string; last_beat: string; seconds_ago: number; online: boolean; payload: Record<string, unknown> };
+
+export interface SystemStatus {
+  services: ServiceStatus[];
+}
+
+export const xmlStatusApi = {
+  get: () => xmlApi.get<SystemStatus>("/status"),
 };
 
 function cleanParams(f: NotaListFilter): Record<string, string | number> {
