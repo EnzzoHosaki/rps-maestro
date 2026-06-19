@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, User } from "lucide-react";
 import {
   notasApi,
   xmlMetricsApi,
@@ -185,6 +185,21 @@ function CopyButton({ text, label }: { text: string; label: string }) {
         <Copy className="h-3.5 w-3.5" aria-hidden />
       )}
     </button>
+  );
+}
+
+// Badge "via robô / manual" — só aparece em notas com status imported.
+// via_robo undefined = campo não presente (status ≠ imported), não renderiza.
+function ViaRoboBadge({ via_robo }: { via_robo?: boolean }) {
+  if (via_robo === undefined) return null;
+  return via_robo ? (
+    <span className="inline-flex items-center gap-1 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+      <Bot className="h-3 w-3" aria-hidden /> Robô
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+      <User className="h-3 w-3" aria-hidden /> Manual
+    </span>
   );
 }
 
@@ -759,7 +774,10 @@ function XmlPageContent() {
                 {n.nome_emitente || n.cnpj_emitente || "—"}
               </Td>
               <Td>
-                <Badge className={XML_STATUS_STYLE[n.status]}>{XML_STATUS_LABEL[n.status]}</Badge>
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  <Badge className={XML_STATUS_STYLE[n.status]}>{XML_STATUS_LABEL[n.status]}</Badge>
+                  <ViaRoboBadge via_robo={n.via_robo} />
+                </span>
               </Td>
               <Td className="text-xs text-gray-500">{lastEventTs(n)}</Td>
             </Tr>
@@ -1680,8 +1698,11 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
           <div className="mb-5 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
             <Field label="Tipo" value={XML_DOC_TYPE_LABEL[data.doc_type]} />
             <Field label="Status">
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${XML_STATUS_STYLE[data.status]}`}>
-                {XML_STATUS_LABEL[data.status]}
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${XML_STATUS_STYLE[data.status]}`}>
+                  {XML_STATUS_LABEL[data.status]}
+                </span>
+                <ViaRoboBadge via_robo={data.via_robo} />
               </span>
             </Field>
             <Field label="Empresa" value={data.nome_empresa || (data.codigo_empresa ? `#${data.codigo_empresa}-${data.codigo_filial ?? 1}` : "—")} />

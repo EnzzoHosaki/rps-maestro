@@ -8,6 +8,7 @@ import {
   Clock,
   FileSearch,
   LayoutDashboard,
+  RadioTower,
   Users,
   Zap,
   type LucideIcon,
@@ -16,13 +17,14 @@ import { useAuth } from "@/lib/auth";
 import { useNav } from "@/lib/nav";
 import { cn } from "@/lib/cn";
 
-type NavLink = { href: string; label: string; icon: LucideIcon; adminOnly?: boolean };
+type NavLink = { href: string; label: string; icon: LucideIcon; adminOnly?: boolean; exact?: boolean };
 
 const links: NavLink[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/automations", label: "Automações", icon: Zap },
   { href: "/jobs", label: "Jobs", icon: Activity },
-  { href: "/xml", label: "Rastreador XML", icon: FileSearch },
+  { href: "/xml", label: "Rastreador XML", icon: FileSearch, exact: true },
+  { href: "/xml/status", label: "Status do Sistema", icon: RadioTower },
   { href: "/schedules", label: "Agendamentos", icon: Clock },
   { href: "/users", label: "Usuários", icon: Users, adminOnly: true },
 ];
@@ -73,7 +75,7 @@ export function Sidebar() {
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {visibleLinks.map((l) => {
-            const active = l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
+            const active = l.href === "/" || l.exact ? pathname === l.href : pathname.startsWith(l.href);
             return (
               <Link
                 key={l.href}
