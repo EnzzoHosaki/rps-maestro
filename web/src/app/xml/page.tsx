@@ -302,11 +302,18 @@ function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
 
-// Retorna o timestamp mais recente disponível (o "último evento" da nota),
-// independente do status atual. Evita mostrar "—" em notas que ainda não foram
-// importadas mas já têm eventos de chegada/sincronização.
+// ISO do evento mais recente da nota — o MÁXIMO entre chegada/sync/importação,
+// não a ordem do pipeline. (Há notas em que o sync é registrado depois do
+// import; "último evento" deve ser o cronologicamente mais recente.)
+function lastEventIso(n: { arrived_at?: string; synced_at?: string; imported_at?: string }): string | undefined {
+  const ts = [n.arrived_at, n.synced_at, n.imported_at].filter(Boolean) as string[];
+  if (ts.length === 0) return undefined;
+  return ts.reduce((a, b) => (new Date(b).getTime() > new Date(a).getTime() ? b : a));
+}
+
+// Texto formatado do último evento. "—" se a nota não tem nenhum timestamp.
 function lastEventTs(n: { arrived_at?: string; synced_at?: string; imported_at?: string }): string {
-  return fmtTs(n.imported_at ?? n.synced_at ?? n.arrived_at);
+  return fmtTs(lastEventIso(n));
 }
 
 function fmtBRL(v: number): string {
@@ -480,7 +487,7 @@ function XmlPageContent() {
           case "empresa": return dir * (a.nome_empresa ?? "").localeCompare(b.nome_empresa ?? "");
           case "emitente":return dir * (a.nome_emitente ?? "").localeCompare(b.nome_emitente ?? "");
           case "status":  return dir * ((STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
-          case "evento":  return dir * ((a.imported_at ?? a.synced_at ?? a.arrived_at ?? "").localeCompare(b.imported_at ?? b.synced_at ?? b.arrived_at ?? ""));
+          case "evento":  return dir * ((lastEventIso(a) ?? "").localeCompare(lastEventIso(b) ?? ""));
           default:        return 0;
         }
       })
@@ -1593,11 +1600,25 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
   // 150ms: mais responsivo que 300ms; o backend /empresas com ?q= é leve pois
   // retorna apenas matches parciais por nome (não todas as empresas).
   const debounced = useDebounced(search.trim(), 150);
+  // Filtro de data — recomputa os agregados por janela no backend (mesma
+  // semântica do /notas). Com janela, o /empresas conta ao vivo da tabela notas.
+  const [dateField, setDateField] = useState<DateField>("imported");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const q = useQuery({
-    // Busca por nome via API (?q=, parcial/case-insensitive). Mantém limit:0
-    // (todas as linhas) + sort/paginação client-side de sempre.
-    queryKey: ["xml", "empresas", debounced],
-    queryFn: () => empresasApi.list({ limit: 0, q: debounced || undefined }).then((r) => r.data),
+    // Busca por nome via API (?q=, parcial/case-insensitive) + filtro de data.
+    // Mantém limit:0 (todas as linhas) + sort/paginação client-side de sempre.
+    queryKey: ["xml", "empresas", debounced, dateField, from, to],
+    queryFn: () =>
+      empresasApi
+        .list({
+          limit: 0,
+          q: debounced || undefined,
+          date_field: from || to ? dateField : undefined,
+          from: from || undefined,
+          to: to || undefined,
+        })
+        .then((r) => r.data),
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -1653,6 +1674,41 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
           placeholder="Buscar empresa por nome…"
           className="w-72 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <select
+            value={dateField}
+            onChange={(e) => setDateField(e.target.value as DateField)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          >
+            <option value="emissao">Data emissão</option>
+            <option value="arrived">Data chegada</option>
+            <option value="synced">Data sincronização</option>
+            <option value="imported">Data importação</option>
+          </select>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          />
+          <span>até</span>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          />
+          {(from || to) && (
+            <button
+              type="button"
+              onClick={() => { setFrom(""); setTo(""); }}
+              aria-label="Limpar filtro de data"
+              className="rounded p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          )}
+        </div>
         <span className="text-sm text-gray-500">
           {search.trim() !== debounced || q.isFetching
             ? "Buscando…"
@@ -1760,6 +1816,11 @@ const STAGE_LABEL: Record<string, string> = {
 // "Aguardando importação" evita a leitura errada de "já importada".
 const EVENT_LABEL: Record<string, string> = {
   seen_pending: "visto no Athenas",
+  file_seen: "arquivo detectado",
+  file_moved: "arquivo movido",
+  imported: "importada",
+  arrived: "chegou",
+  synced: "sincronizada",
 };
 
 function spanLabels(s: { stage: string; event_type: string }): { stage: string; event: string } {
