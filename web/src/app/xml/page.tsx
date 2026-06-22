@@ -302,11 +302,18 @@ function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
 
-// Retorna o timestamp mais recente disponível (o "último evento" da nota),
-// independente do status atual. Evita mostrar "—" em notas que ainda não foram
-// importadas mas já têm eventos de chegada/sincronização.
+// ISO do evento mais recente da nota — o MÁXIMO entre chegada/sync/importação,
+// não a ordem do pipeline. (Há notas em que o sync é registrado depois do
+// import; "último evento" deve ser o cronologicamente mais recente.)
+function lastEventIso(n: { arrived_at?: string; synced_at?: string; imported_at?: string }): string | undefined {
+  const ts = [n.arrived_at, n.synced_at, n.imported_at].filter(Boolean) as string[];
+  if (ts.length === 0) return undefined;
+  return ts.reduce((a, b) => (new Date(b).getTime() > new Date(a).getTime() ? b : a));
+}
+
+// Texto formatado do último evento. "—" se a nota não tem nenhum timestamp.
 function lastEventTs(n: { arrived_at?: string; synced_at?: string; imported_at?: string }): string {
-  return fmtTs(n.imported_at ?? n.synced_at ?? n.arrived_at);
+  return fmtTs(lastEventIso(n));
 }
 
 function fmtBRL(v: number): string {
@@ -480,7 +487,7 @@ function XmlPageContent() {
           case "empresa": return dir * (a.nome_empresa ?? "").localeCompare(b.nome_empresa ?? "");
           case "emitente":return dir * (a.nome_emitente ?? "").localeCompare(b.nome_emitente ?? "");
           case "status":  return dir * ((STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
-          case "evento":  return dir * ((a.imported_at ?? a.synced_at ?? a.arrived_at ?? "").localeCompare(b.imported_at ?? b.synced_at ?? b.arrived_at ?? ""));
+          case "evento":  return dir * ((lastEventIso(a) ?? "").localeCompare(lastEventIso(b) ?? ""));
           default:        return 0;
         }
       })
@@ -1809,6 +1816,11 @@ const STAGE_LABEL: Record<string, string> = {
 // "Aguardando importação" evita a leitura errada de "já importada".
 const EVENT_LABEL: Record<string, string> = {
   seen_pending: "visto no Athenas",
+  file_seen: "arquivo detectado",
+  file_moved: "arquivo movido",
+  imported: "importada",
+  arrived: "chegou",
+  synced: "sincronizada",
 };
 
 function spanLabels(s: { stage: string; event_type: string }): { stage: string; event: string } {
