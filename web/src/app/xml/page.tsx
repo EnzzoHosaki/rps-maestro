@@ -1593,11 +1593,25 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
   // 150ms: mais responsivo que 300ms; o backend /empresas com ?q= é leve pois
   // retorna apenas matches parciais por nome (não todas as empresas).
   const debounced = useDebounced(search.trim(), 150);
+  // Filtro de data — recomputa os agregados por janela no backend (mesma
+  // semântica do /notas). Com janela, o /empresas conta ao vivo da tabela notas.
+  const [dateField, setDateField] = useState<DateField>("imported");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const q = useQuery({
-    // Busca por nome via API (?q=, parcial/case-insensitive). Mantém limit:0
-    // (todas as linhas) + sort/paginação client-side de sempre.
-    queryKey: ["xml", "empresas", debounced],
-    queryFn: () => empresasApi.list({ limit: 0, q: debounced || undefined }).then((r) => r.data),
+    // Busca por nome via API (?q=, parcial/case-insensitive) + filtro de data.
+    // Mantém limit:0 (todas as linhas) + sort/paginação client-side de sempre.
+    queryKey: ["xml", "empresas", debounced, dateField, from, to],
+    queryFn: () =>
+      empresasApi
+        .list({
+          limit: 0,
+          q: debounced || undefined,
+          date_field: from || to ? dateField : undefined,
+          from: from || undefined,
+          to: to || undefined,
+        })
+        .then((r) => r.data),
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -1653,6 +1667,41 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
           placeholder="Buscar empresa por nome…"
           className="w-72 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <select
+            value={dateField}
+            onChange={(e) => setDateField(e.target.value as DateField)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          >
+            <option value="emissao">Data emissão</option>
+            <option value="arrived">Data chegada</option>
+            <option value="synced">Data sincronização</option>
+            <option value="imported">Data importação</option>
+          </select>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          />
+          <span>até</span>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+          />
+          {(from || to) && (
+            <button
+              type="button"
+              onClick={() => { setFrom(""); setTo(""); }}
+              aria-label="Limpar filtro de data"
+              className="rounded p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          )}
+        </div>
         <span className="text-sm text-gray-500">
           {search.trim() !== debounced || q.isFetching
             ? "Buscando…"
