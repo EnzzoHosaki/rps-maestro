@@ -4,7 +4,8 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, User } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower } from "lucide-react";
+import Link from "next/link";
 import {
   notasApi,
   xmlMetricsApi,
@@ -226,14 +227,10 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 // Badge "via robô / manual" — só aparece em notas com status imported.
 // via_robo undefined = campo não presente (status ≠ imported), não renderiza.
 function ViaRoboBadge({ via_robo }: { via_robo?: boolean }) {
-  if (via_robo === undefined) return null;
-  return via_robo ? (
+  if (!via_robo) return null;
+  return (
     <span className="inline-flex items-center gap-1 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">
       <Bot className="h-3 w-3" aria-hidden /> Robô
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-      <User className="h-3 w-3" aria-hidden /> Manual
     </span>
   );
 }
@@ -400,6 +397,17 @@ function XmlPageContent() {
     refetchInterval: 10_000,
   });
 
+  // Quando um filtro de empresa está ativo, busca os agregados de TODAS as
+  // empresas (mesmo dataset da aba Empresas, compartilhado por cache) pra
+  // derivar os números daquela empresa e refletir nos cards + chips.
+  const empresaFiltered = codigoEmpresa != null;
+  const empresaAggQ = useQuery({
+    queryKey: ["xml", "empresas", "all"],
+    queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data),
+    refetchInterval: 30_000,
+    enabled: empresaFiltered,
+  });
+
   const list = useQuery({
     queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset }],
     queryFn: () =>
@@ -425,7 +433,37 @@ function XmlPageContent() {
     enabled: view === "notas",
   });
 
-  const ov = overview.data;
+  const ovGlobal = overview.data;
+  // Agregado da empresa filtrada: soma as linhas (empresa, filial) que casam.
+  // Vira a fonte de cards/chips quando há filtro de empresa; latências ficam
+  // sempre globais (não há percentil por empresa no agregado).
+  const empOv: Overview | undefined = (() => {
+    if (!empresaFiltered || !empresaAggQ.data) return undefined;
+    const rows = empresaAggQ.data.items.filter(
+      (e) =>
+        e.codigo_empresa === codigoEmpresa &&
+        (codigoFilial == null || e.codigo_filial === codigoFilial),
+    );
+    if (rows.length === 0) return undefined;
+    const sum = (k: keyof EmpresaAgg) => rows.reduce((a, e) => a + ((e[k] as number) ?? 0), 0);
+    return {
+      arrived: sum("arrived"),
+      synced: sum("synced"),
+      pending_import: sum("pending_import"),
+      imported: sum("imported"),
+      import_ignored: sum("import_ignored"),
+      stuck: sum("stuck"),
+      lost: sum("lost"),
+      in_transit: sum("in_transit"),
+      imported_today: 0, // não existe por empresa
+      lat_arrival_sync_p50_s: ovGlobal?.lat_arrival_sync_p50_s,
+      lat_arrival_sync_p95_s: ovGlobal?.lat_arrival_sync_p95_s,
+      lat_sync_import_p50_s: ovGlobal?.lat_sync_import_p50_s,
+      lat_sync_import_p95_s: ovGlobal?.lat_sync_import_p95_s,
+    };
+  })();
+  // Fonte exibida nos cards/chips: empresa quando filtrada, senão global.
+  const ov = empOv ?? ovGlobal;
   const total = list.data?.total ?? 0;
   const rawItems = list.data?.items ?? [];
   // Status ordering for sort: pipeline stage order.
@@ -453,8 +491,10 @@ function XmlPageContent() {
   // "Pendente" = mesma definição do tracker (arrived+synced+pending_import+stuck;
   // stuck conta, lost não, terminais fora). Mantém cards e filtro alinhados.
   const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import + ov.stuck : 0;
-  const showStuck = overview.isLoading || (ov?.stuck ?? 0) > 0;
-  const showLost = overview.isLoading || (ov?.lost ?? 0) > 0;
+  // Loading dos cards: empresa quando filtrada (espera o agregado), senão global.
+  const cardsLoading = empresaFiltered ? empresaAggQ.isLoading && !empOv : overview.isLoading;
+  const showStuck = cardsLoading || (ov?.stuck ?? 0) > 0;
+  const showLost = cardsLoading || (ov?.lost ?? 0) > 0;
 
   function reset<T>(setter: (v: T) => void) {
     return (v: T) => {
@@ -523,9 +563,15 @@ function XmlPageContent() {
 
   return (
     <div className="space-y-5">
-      {/* Frescor dos dados (data observability) — responde "os dados estão
-          atualizados?" sem depender de backend novo. */}
-      <div className="flex justify-end">
+      {/* Frescor dos dados + acesso ao status dos serviços do tracker */}
+      <div className="flex items-center justify-between">
+        <Link
+          href="/xml/status"
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors shadow-sm"
+        >
+          <RadioTower className="h-3.5 w-3.5" aria-hidden />
+          Status do tracker
+        </Link>
         <FreshnessIndicator
           updatedAt={overview.dataUpdatedAt}
           isFetching={overview.isFetching}
@@ -550,18 +596,23 @@ function XmlPageContent() {
         </div>
       )}
 
-      {/* Cards do pipeline (Travadas/Sumidas só aparecem quando > 0) */}
+      {/* Cards do pipeline (Travadas/Sumidas só aparecem quando > 0). Quando há
+          filtro de empresa, refletem os números daquela empresa. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="A Sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={overview.isLoading} />
-        <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={overview.isLoading} />
-        <StatCard label="Aguardando Importação" value={ov?.pending_import ?? "—"} loading={overview.isLoading} />
-        <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={overview.isLoading} title="Contagem do dia. O filtro 'Importada' mostra todas." />
-        <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={overview.isLoading} />
+        <StatCard label="A Sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={cardsLoading} />
+        <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={cardsLoading} />
+        <StatCard label="Aguardando Importação" value={ov?.pending_import ?? "—"} loading={cardsLoading} />
+        {empresaFiltered ? (
+          <StatCard label="Importadas" value={ov?.imported ?? "—"} tone="success" loading={cardsLoading} title="Total importado desta empresa (acumulado)." />
+        ) : (
+          <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={cardsLoading} title="Contagem do dia. O filtro 'Importada' mostra todas." />
+        )}
+        <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={cardsLoading} />
         {showStuck && (
-          <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={overview.isLoading} />
+          <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={cardsLoading} />
         )}
         {showLost && (
-          <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone="danger" loading={overview.isLoading} />
+          <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone="danger" loading={cardsLoading} />
         )}
       </div>
       {ov && (
@@ -572,11 +623,11 @@ function XmlPageContent() {
             {" · "}
             <span title={fmtFull(ov.in_transit)}>{fmtCompact(ov.in_transit)}</span> em trânsito
           </span>
-          <span title="Percentis das transições dos últimos 30 dias; exclui backfill histórico.">
-            Latência chegada→sync (30d): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
+          <span title={`Percentis das transições dos últimos 30 dias; exclui backfill histórico.${empresaFiltered ? " Latência é sempre global (não por empresa)." : ""}`}>
+            Latência chegada→sync (30d{empresaFiltered ? ", global" : ""}): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
           </span>
-          <span title="Percentis das transições dos últimos 30 dias; exclui backfill histórico.">
-            Latência sync→import (30d): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
+          <span title={`Percentis das transições dos últimos 30 dias; exclui backfill histórico.${empresaFiltered ? " Latência é sempre global (não por empresa)." : ""}`}>
+            Latência sync→import (30d{empresaFiltered ? ", global" : ""}): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
           </span>
         </div>
       )}
