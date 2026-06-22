@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, User, AlertTriangle, Info } from "lucide-react";
+import { Bot, User, AlertTriangle, Info, ArrowLeft } from "lucide-react";
 import {
   xmlStatusApi,
   type PollerPayload,
@@ -210,6 +211,13 @@ export default function XmlStatusPage() {
 
   return (
     <div className="space-y-5">
+      <Link
+        href="/xml"
+        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-rps-olive-dark transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" aria-hidden />
+        Voltar ao Rastreador XML
+      </Link>
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           Status do Sistema — Rastreador XML
