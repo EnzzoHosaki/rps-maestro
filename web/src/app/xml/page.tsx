@@ -603,23 +603,36 @@ function XmlPageContent() {
         </div>
       )}
 
+      {/* Cabeçalho de período: os cards de etapa são FOTO DE AGORA (estoque),
+          não um recorte de tempo. A única exceção é "Importadas hoje" (fluxo do
+          dia), por isso ela leva hint próprio. Resolve a dúvida "esses números
+          são de quando?" sem depender de backend novo (Fase 1). */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+          Estado atual do pipeline
+          {empresaFilterLabel && <span className="font-normal text-gray-400"> · {empresaFilterLabel}</span>}
+        </h2>
+        <p className="text-xs text-gray-400">
+          Foto de agora: todas as notas paradas em cada etapa, independente de quando entraram.
+        </p>
+      </div>
       {/* Cards do pipeline (Travadas/Sumidas só aparecem quando > 0). Quando há
           filtro de empresa, refletem os números daquela empresa. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="A Sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={cardsLoading} />
-        <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={cardsLoading} />
-        <StatCard label="Aguardando Importação" value={ov?.pending_import ?? "—"} loading={cardsLoading} />
+        <StatCard label="A Sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={cardsLoading} title="Notas que chegaram mas ainda não sincronizaram — contagem de agora." />
+        <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={cardsLoading} title="Notas sincronizadas aguardando o próximo passo — contagem de agora." />
+        <StatCard label="Aguardando Importação" value={ov?.pending_import ?? "—"} loading={cardsLoading} title="Vistas no Athenas, ainda não importadas — contagem de agora." />
         {empresaFiltered ? (
-          <StatCard label="Importadas" value={ov?.imported ?? "—"} tone="success" loading={cardsLoading} title="Total importado desta empresa (acumulado)." />
+          <StatCard label="Importadas" value={ov?.imported ?? "—"} hint="acumulado" tone="success" loading={cardsLoading} title="Total importado desta empresa desde sempre (acumulado, não é o estado atual)." />
         ) : (
-          <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} tone="success" loading={cardsLoading} title="Contagem do dia. O filtro 'Importada' mostra todas." />
+          <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} hint="somente hoje" tone="success" loading={cardsLoading} title="Fluxo do dia: notas importadas hoje. É a única contagem por período — o filtro 'Importada' mostra todas." />
         )}
-        <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={cardsLoading} />
+        <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={cardsLoading} title="Notas marcadas como ignoradas — contagem de agora." />
         {showStuck && (
-          <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={cardsLoading} />
+          <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={cardsLoading} title="Paradas além do esperado — contagem de agora." />
         )}
         {showLost && (
-          <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone="danger" loading={cardsLoading} />
+          <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone="danger" loading={cardsLoading} title="Sem evento há tempo demais — contagem de agora." />
         )}
       </div>
       {ov && (
