@@ -452,6 +452,126 @@ function empresaToCsvRow(e: EmpresaAgg): (string | number | null)[] {
   ];
 }
 
+// ── Consultas salvas (presets) ────────────────────────────────────────────────
+// Salva o conjunto de filtros da aba Notas em localStorage pra reusar as
+// consultas frequentes (ex.: "minhas empresas travadas"). Guarda só os filtros
+// explícitos (status/tipo/busca/empresa/cnpj/data) — não a navegação por
+// drill-down (codigo_empresa).
+const PRESETS_KEY = "xml:notas:presets";
+type NotasPresetFilters = {
+  statusFilter: NotaStatus | "all";
+  docFilter: DocType | "all";
+  q: string;
+  empresa: string;
+  cnpj: string;
+  dateField: DateField;
+  from: string;
+  to: string;
+};
+type NotasPreset = NotasPresetFilters & { name: string };
+
+function loadPresets(): NotasPreset[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const v = JSON.parse(localStorage.getItem(PRESETS_KEY) ?? "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function NotasPresets({
+  current,
+  onApply,
+}: {
+  current: NotasPresetFilters;
+  onApply: (p: NotasPresetFilters) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Lazy init: lê o localStorage no 1º render do cliente (o menu começa fechado,
+  // então não há conteúdo de preset no HTML estático → sem mismatch de hidratação).
+  const [presets, setPresets] = useState<NotasPreset[]>(loadPresets);
+  const [name, setName] = useState("");
+
+  function persist(next: NotasPreset[]) {
+    setPresets(next);
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(next));
+  }
+  function save() {
+    const n = name.trim();
+    if (!n) return;
+    persist([...presets.filter((p) => p.name !== n), { ...current, name: n }]);
+    setName("");
+    toast.success(`Consulta "${n}" salva.`);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors"
+      >
+        Consultas salvas
+        <ChevronDown className="h-3 w-3" aria-hidden />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} aria-hidden />
+          <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 shadow-lg">
+            {presets.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-gray-400">Nenhuma consulta salva ainda.</p>
+            ) : (
+              <ul className="max-h-60 overflow-y-auto">
+                {presets.map((p) => (
+                  <li key={p.name} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onApply(p);
+                        setOpen(false);
+                      }}
+                      className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                    >
+                      {p.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => persist(presets.filter((x) => x.name !== p.name))}
+                      aria-label={`Excluir consulta ${p.name}`}
+                      className="rounded p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-2 flex gap-1 border-t border-gray-100 pt-2 dark:border-gray-800">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && save()}
+                placeholder="Salvar consulta atual como…"
+                className="min-w-0 flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={save}
+                disabled={!name.trim()}
+                className="rounded bg-rps-olive-dark px-2 py-1 text-xs font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50 disabled:pointer-events-none"
+              >
+                Salvar
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ISO do evento mais recente da nota — o MÁXIMO entre chegada/sync/importação,
 // não a ordem do pipeline. (Há notas em que o sync é registrado depois do
 // import; "último evento" deve ser o cronologicamente mais recente.)
@@ -716,6 +836,21 @@ function XmlPageContent() {
     setOffset(0);
   }
 
+  // Snapshot dos filtros explícitos pra salvar como consulta (preset).
+  const currentPreset: NotasPresetFilters = { statusFilter, docFilter, q, empresa, cnpj, dateField, from, to };
+  // Aplica uma consulta salva: seta os filtros e zera a navegação por drill.
+  function applyPreset(p: NotasPresetFilters) {
+    setStatusFilter(p.statusFilter);
+    setDocFilter(p.docFilter);
+    setQ(p.q);
+    setEmpresa(p.empresa);
+    setCnpj(p.cnpj);
+    setDateField(p.dateField);
+    setFrom(p.from);
+    setTo(p.to);
+    clearEmpresaFilter();
+  }
+
   // Drill-down da visão por empresa → abre a aba Notas filtrada por aquela
   // (empresa, filial), ou pelo bucket "sem empresa". `filters` carrega os
   // filtros que estavam ativos na aba Empresas (data/janela) pra manter a
@@ -959,6 +1094,7 @@ function XmlPageContent() {
               </span>
             )}
           </span>
+          <NotasPresets current={currentPreset} onApply={applyPreset} />
           <button
             type="button"
             onClick={exportNotasCsv}
