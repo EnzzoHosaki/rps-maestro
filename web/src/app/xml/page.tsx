@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Fragment, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -450,6 +450,31 @@ function empresaToCsvRow(e: EmpresaAgg): (string | number | null)[] {
     e.import_ignored,
     e.in_transit,
   ];
+}
+
+// ── Saúde da empresa ──────────────────────────────────────────────────────────
+// Semáforo de triagem por empresa = % das notas rastreadas que ainda estão
+// pendentes (chegou+sincronizado+aguardando ÷ total rastreado). Bandas
+// ajustáveis: verde <10% · amarelo 10–30% · vermelho >30%. Reusa as cores do
+// SLA. É um proxy de triagem (não considera idade — latência é global).
+const HEALTH_WARN = 0.1;
+const HEALTH_CRIT = 0.3;
+function empresaHealth(e: EmpresaAgg): { tone: SlaTone; pct: number | null } {
+  const tracked = e.arrived + e.synced + e.pending_import + e.imported + e.import_ignored;
+  if (tracked === 0) return { tone: "none", pct: null };
+  const pct = (e.arrived + e.synced + e.pending_import) / tracked;
+  const tone: SlaTone = pct < HEALTH_WARN ? "ok" : pct < HEALTH_CRIT ? "warn" : "crit";
+  return { tone, pct };
+}
+function HealthDot({ e }: { e: EmpresaAgg }) {
+  const h = empresaHealth(e);
+  return (
+    <span
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ${SLA_DOT[h.tone]}`}
+      title={h.pct == null ? "Sem notas rastreadas" : `Saúde: ${(h.pct * 100).toFixed(0)}% das notas pendentes`}
+      aria-hidden
+    />
+  );
 }
 
 // ── Consultas salvas (presets) ────────────────────────────────────────────────
@@ -1982,25 +2007,74 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
     setSort((s) => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
 
   const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import;
-  const rows = [...(q.data?.items ?? [])].sort((a, b) => {
-    const aNo = a.codigo_empresa == null;
-    const bNo = b.codigo_empresa == null;
-    if (aNo !== bNo) return aNo ? 1 : -1; // "Sem empresa" sempre por último
+
+  // Quais empresas (codigo_empresa) estão expandidas mostrando as filiais.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggleExpand = (cod: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(cod)) next.delete(cod); else next.add(cod);
+      return next;
+    });
+
+  // Comparador conforme a coluna/direção ativa (string = nome, senão número).
+  const cmp = (a: EmpresaAgg, b: EmpresaAgg) => {
     const av = empValue(a, sort.key);
     const bv = empValue(b, sort.key);
-    // Para strings: localeCompare retorna <0 se av<bv (av "vem antes" na ordem A→Z).
-    // "desc" = Z→A → negar; "asc" = A→Z → direto.
-    // Para números: diff = bv-av → positivo se bv>av (bv na frente = desc).
-    // "desc" = maior primeiro → usar diff; "asc" → negar.
-    const diff =
-      typeof av === "string" && typeof bv === "string"
-        ? sort.dir === "desc"
-          ? bv.localeCompare(av)   // Z→A
-          : av.localeCompare(bv)   // A→Z
-        : sort.dir === "desc"
-          ? (bv as number) - (av as number)
-          : (av as number) - (bv as number);
-    return diff;
+    return typeof av === "string" && typeof bv === "string"
+      ? sort.dir === "desc" ? bv.localeCompare(av) : av.localeCompare(bv)
+      : sort.dir === "desc" ? (bv as number) - (av as number) : (av as number) - (bv as number);
+  };
+
+  // Agrupa por empresa: uma linha-mãe com a soma das filiais (expansível). A
+  // linha "Sem empresa" e empresas de filial única não expandem. Ordena as
+  // filiais dentro do grupo e os grupos entre si pela mesma coluna.
+  type EmpGroup = {
+    key: string;
+    codigo_empresa: number | null;
+    nome: string;
+    filiais: EmpresaAgg[];
+    total: EmpresaAgg;
+    isNoEmpresa: boolean;
+  };
+  const items = q.data?.items ?? [];
+  const byEmpresa = new Map<number, EmpresaAgg[]>();
+  let semEmpresaRow: EmpresaAgg | undefined;
+  for (const e of items) {
+    if (e.codigo_empresa == null) { semEmpresaRow = e; continue; }
+    const arr = byEmpresa.get(e.codigo_empresa) ?? [];
+    arr.push(e);
+    byEmpresa.set(e.codigo_empresa, arr);
+  }
+  const sumAgg = (arr: EmpresaAgg[], cod: number, nome: string): EmpresaAgg => {
+    const s = (k: keyof EmpresaAgg) => arr.reduce((a, e) => a + ((e[k] as number) ?? 0), 0);
+    return {
+      codigo_empresa: cod, codigo_filial: undefined, nome_empresa: nome,
+      arrived: s("arrived"), synced: s("synced"), pending_import: s("pending_import"),
+      imported: s("imported"), import_ignored: s("import_ignored"), in_transit: s("in_transit"),
+    };
+  };
+  const groups: EmpGroup[] = [...byEmpresa.entries()]
+    .map(([cod, arr]) => {
+      const nome = arr.find((e) => e.nome_empresa)?.nome_empresa || `#${cod}`;
+      return {
+        key: String(cod), codigo_empresa: cod, nome,
+        filiais: [...arr].sort(cmp), total: sumAgg(arr, cod, nome), isNoEmpresa: false,
+      };
+    })
+    .sort((a, b) => cmp(a.total, b.total));
+  if (semEmpresaRow) {
+    groups.push({
+      key: "sem-empresa", codigo_empresa: null, nome: "Sem empresa",
+      filiais: [semEmpresaRow], total: semEmpresaRow, isNoEmpresa: true,
+    });
+  }
+  const empresaCount = byEmpresa.size;
+  // Linhas planas (nível filial) pra exportação — granularidade mais útil.
+  const flatRows = [...items].sort((a, b) => {
+    const aNo = a.codigo_empresa == null, bNo = b.codigo_empresa == null;
+    if (aNo !== bNo) return aNo ? 1 : -1;
+    return cmp(a, b);
   });
 
   const numCols = 2 + EMP_COLS.length; // Empresa + colunas numéricas + chevron
@@ -2014,6 +2088,24 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
       >
         {fmtCompact(n)}
       </span>
+    );
+
+  // Células numéricas de uma linha (mãe ou filial) — mesmas colunas/estilo.
+  const numCells = (e: EmpresaAgg) =>
+    EMP_COLS.map((col) =>
+      col.key === "pendentes" ? (
+        <Td key={col.key} className="text-right font-semibold text-gray-900 dark:text-gray-100">
+          <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
+        </Td>
+      ) : col.key === "imported" ? (
+        <Td key={col.key} className="text-right text-gray-500">
+          <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+        </Td>
+      ) : (
+        <Td key={col.key} className="text-right">
+          {cell(empValue(e, col.key) as number, col.tone)}
+        </Td>
+      ),
     );
 
   return (
@@ -2063,19 +2155,19 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
         <span className="text-sm text-gray-500">
           {search.trim() !== debounced || q.isFetching
             ? "Buscando…"
-            : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
+            : `${empresaCount} empresa${empresaCount === 1 ? "" : "s"}`}
         </span>
         <button
           type="button"
           onClick={() => {
-            if (rows.length === 0) {
+            if (flatRows.length === 0) {
               toast.info("Nenhuma empresa pra exportar.");
               return;
             }
-            downloadCsv(`empresas-xml-${fileStamp()}`, toCsv(EMPRESA_CSV_HEADERS, rows.map(empresaToCsvRow)));
-            toast.success(`${rows.length} empresa(s) exportada(s).`);
+            downloadCsv(`empresas-xml-${fileStamp()}`, toCsv(EMPRESA_CSV_HEADERS, flatRows.map(empresaToCsvRow)));
+            toast.success(`${flatRows.length} linha(s) exportada(s).`);
           }}
-          disabled={rows.length === 0}
+          disabled={flatRows.length === 0}
           title="Exportar as empresas filtradas para CSV (abre no Excel)"
           className="ml-auto inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
@@ -2083,6 +2175,15 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
           Exportar CSV
         </button>
       </div>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+        <span>Agrupado por empresa — clique no <ChevronRight className="inline h-3 w-3" aria-hidden /> para ver as filiais.</span>
+        <span className="inline-flex items-center gap-1">
+          Saúde (% pendente):
+          <span className="inline-block h-2 w-2 rounded-full bg-green-500" aria-hidden /> &lt;10%
+          <span className="ml-1 inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden /> 10–30%
+          <span className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500" aria-hidden /> &gt;30%
+        </span>
+      </p>
       <div className="relative">
         <TableLoadingOverlay isFetching={q.isFetching && !q.isLoading} />
       <Table stickyHeader>
@@ -2117,48 +2218,75 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
         <Th className="w-8" aria-label="Abrir" />
       </THead>
       <TBody>
-        {rows.map((e) => {
-          const isNoEmpresa = e.codigo_empresa == null;
+        {groups.map((g) => {
+          const multi = g.filiais.length > 1;
+          const isOpen = g.codigo_empresa != null && expanded.has(g.codigo_empresa);
+          // Linha-mãe: soma das filiais (multi) ou a própria filial única.
+          const parent = multi ? g.total : g.filiais[0];
           return (
-            <Tr
-              key={isNoEmpresa ? "sem-empresa" : `${e.codigo_empresa}-${e.codigo_filial ?? "x"}`}
-              className="group cursor-pointer"
-              title="Ver notas desta empresa"
-              onClick={() => onDrill(e, { dateField, from, to })}
-            >
-              <Td className="max-w-[280px] truncate text-gray-700 dark:text-gray-300" title={e.nome_empresa}>
-                {isNoEmpresa ? (
-                  <span className="italic text-gray-500">Sem empresa</span>
-                ) : (
-                  e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`
-                )}
-              </Td>
-              {EMP_COLS.map((col) =>
-                col.key === "pendentes" ? (
-                  <Td key={col.key} className="text-right font-semibold text-gray-900 dark:text-gray-100">
-                    <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
+            <Fragment key={g.key}>
+              <Tr
+                className="group cursor-pointer"
+                title="Ver notas desta empresa"
+                onClick={() => onDrill(parent, { dateField, from, to })}
+              >
+                <Td className="max-w-[300px] text-gray-700 dark:text-gray-300" title={g.isNoEmpresa ? undefined : g.nome}>
+                  <span className="flex items-center gap-2">
+                    {multi ? (
+                      <button
+                        type="button"
+                        onClick={(ev) => { ev.stopPropagation(); toggleExpand(g.codigo_empresa as number); }}
+                        aria-label={isOpen ? "Recolher filiais" : "Expandir filiais"}
+                        aria-expanded={isOpen}
+                        className="shrink-0 rounded text-gray-400 hover:text-rps-olive-dark"
+                      >
+                        {isOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+                      </button>
+                    ) : (
+                      <span className="w-4 shrink-0" aria-hidden />
+                    )}
+                    <HealthDot e={parent} />
+                    <span className="truncate">
+                      {g.isNoEmpresa ? <span className="italic text-gray-500">Sem empresa</span> : g.nome}
+                      {multi && <span className="ml-1 text-xs text-gray-400">· {g.filiais.length} filiais</span>}
+                    </span>
+                  </span>
+                </Td>
+                {numCells(parent)}
+                <Td className="text-right">
+                  <ChevronRight
+                    className="ml-auto h-4 w-4 text-gray-300 transition group-hover:text-rps-olive-dark dark:text-gray-600"
+                    aria-hidden
+                  />
+                </Td>
+              </Tr>
+              {multi && isOpen && g.filiais.map((f) => (
+                <Tr
+                  key={`${g.key}-${f.codigo_filial ?? "x"}`}
+                  className="group cursor-pointer bg-gray-50/60 dark:bg-gray-900/40"
+                  title="Ver notas desta filial"
+                  onClick={() => onDrill(f, { dateField, from, to })}
+                >
+                  <Td className="max-w-[300px] text-gray-600 dark:text-gray-400">
+                    <span className="flex items-center gap-2 pl-6">
+                      <HealthDot e={f} />
+                      <span className="truncate">Filial #{f.codigo_filial ?? 1}</span>
+                    </span>
                   </Td>
-                ) : col.key === "imported" ? (
-                  <Td key={col.key} className="text-right text-gray-500">
-                    <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+                  {numCells(f)}
+                  <Td className="text-right">
+                    <ChevronRight
+                      className="ml-auto h-4 w-4 text-gray-300 transition group-hover:text-rps-olive-dark dark:text-gray-600"
+                      aria-hidden
+                    />
                   </Td>
-                ) : (
-                  <Td key={col.key} className="text-right">
-                    {cell(empValue(e, col.key) as number, col.tone)}
-                  </Td>
-                ),
-              )}
-              <Td className="text-right">
-                <ChevronRight
-                  className="ml-auto h-4 w-4 text-gray-300 transition group-hover:text-rps-olive-dark dark:text-gray-600"
-                  aria-hidden
-                />
-              </Td>
-            </Tr>
+                </Tr>
+              ))}
+            </Fragment>
           );
         })}
-        {q.isError && rows.length === 0 && <ErrorRow colSpan={numCols} onRetry={() => q.refetch()} />}
-        {!q.isLoading && !q.isError && rows.length === 0 && (
+        {q.isError && flatRows.length === 0 && <ErrorRow colSpan={numCols} onRetry={() => q.refetch()} />}
+        {!q.isLoading && !q.isError && flatRows.length === 0 && (
           <EmptyRow colSpan={numCols}>
             {debounced
               ? `Nenhuma empresa encontrada para “${debounced}”.`
