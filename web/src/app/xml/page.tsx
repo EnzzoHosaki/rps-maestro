@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Fragment, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info, Download } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   notasApi,
   xmlMetricsApi,
@@ -13,6 +14,8 @@ import {
   XML_STATUS_LABEL,
   XML_STATUS_STYLE,
   XML_DOC_TYPE_LABEL,
+  type Nota,
+  type NotaListFilter,
   type NotaStatus,
   type DocType,
   type DateField,
@@ -20,6 +23,7 @@ import {
   type Overview,
   type TimeseriesRange,
 } from "@/lib/xml-api";
+import { toCsv, downloadCsv } from "@/lib/csv";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
@@ -381,6 +385,218 @@ function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
 
+// ── Exportação CSV ────────────────────────────────────────────────────────────
+// Teto de linhas por exportação de notas. É client-side (puxa o conjunto numa
+// requisição só), então limitamos pra não derrubar o navegador num filtro amplo
+// — e avisamos quando trunca (sem corte silencioso).
+const EXPORT_CAP = 50_000;
+
+// Timestamp pro nome do arquivo (em handler, não em render → new Date() ok).
+function fileStamp(): string {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+}
+
+// Timestamp formatado pro CSV, vazio (não "—") quando ausente.
+function csvTs(s?: string): string {
+  return s ? fmtTs(s) : "";
+}
+
+const NOTA_CSV_HEADERS = [
+  "Chave de acesso", "Número", "Tipo", "Status", "Empresa", "Cód. empresa",
+  "Cód. filial", "Emitente", "CNPJ emitente", "Destinatário", "CNPJ destinatário",
+  "Valor", "Emissão", "Chegada", "Sincronização", "Importação", "Via robô",
+  "Motivo ignorada",
+];
+
+function notaToCsvRow(n: Nota): (string | number | null)[] {
+  return [
+    n.chave_acesso,
+    n.numero_nota ?? "",
+    XML_DOC_TYPE_LABEL[n.doc_type],
+    XML_STATUS_LABEL[n.status],
+    n.nome_empresa ?? "",
+    n.codigo_empresa ?? "",
+    n.codigo_filial ?? "",
+    n.nome_emitente ?? "",
+    n.cnpj_emitente ?? "",
+    n.nome_destinatario ?? "",
+    n.cnpj_destinatario ?? "",
+    // pt-BR: vírgula decimal pro Excel ler como número.
+    n.valor_total != null ? String(n.valor_total).replace(".", ",") : "",
+    n.data_emissao ?? "",
+    csvTs(n.arrived_at),
+    csvTs(n.synced_at),
+    csvTs(n.imported_at),
+    n.via_robo === true ? "Sim" : "",
+    n.motivo_ignorado ?? "",
+  ];
+}
+
+const EMPRESA_CSV_HEADERS = [
+  "Empresa", "Cód. empresa", "Cód. filial", "Pendentes", "A sincronizar",
+  "Sincronizadas", "Aguardando importação", "Importadas", "Ignoradas", "Em trânsito",
+];
+
+function empresaToCsvRow(e: EmpresaAgg): (string | number | null)[] {
+  return [
+    e.codigo_empresa == null ? "Sem empresa" : (e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`),
+    e.codigo_empresa ?? "",
+    e.codigo_filial ?? "",
+    e.arrived + e.synced + e.pending_import,
+    e.arrived,
+    e.synced,
+    e.pending_import,
+    e.imported,
+    e.import_ignored,
+    e.in_transit,
+  ];
+}
+
+// ── Saúde da empresa ──────────────────────────────────────────────────────────
+// Semáforo de triagem por empresa = % das notas rastreadas que ainda estão
+// pendentes (chegou+sincronizado+aguardando ÷ total rastreado). Bandas
+// ajustáveis: verde <10% · amarelo 10–30% · vermelho >30%. Reusa as cores do
+// SLA. É um proxy de triagem (não considera idade — latência é global).
+const HEALTH_WARN = 0.1;
+const HEALTH_CRIT = 0.3;
+function empresaHealth(e: EmpresaAgg): { tone: SlaTone; pct: number | null } {
+  const tracked = e.arrived + e.synced + e.pending_import + e.imported + e.import_ignored;
+  if (tracked === 0) return { tone: "none", pct: null };
+  const pct = (e.arrived + e.synced + e.pending_import) / tracked;
+  const tone: SlaTone = pct < HEALTH_WARN ? "ok" : pct < HEALTH_CRIT ? "warn" : "crit";
+  return { tone, pct };
+}
+function HealthDot({ e }: { e: EmpresaAgg }) {
+  const h = empresaHealth(e);
+  return (
+    <span
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ${SLA_DOT[h.tone]}`}
+      title={h.pct == null ? "Sem notas rastreadas" : `Saúde: ${(h.pct * 100).toFixed(0)}% das notas pendentes`}
+      aria-hidden
+    />
+  );
+}
+
+// ── Consultas salvas (presets) ────────────────────────────────────────────────
+// Salva o conjunto de filtros da aba Notas em localStorage pra reusar as
+// consultas frequentes (ex.: "minhas empresas travadas"). Guarda só os filtros
+// explícitos (status/tipo/busca/empresa/cnpj/data) — não a navegação por
+// drill-down (codigo_empresa).
+const PRESETS_KEY = "xml:notas:presets";
+type NotasPresetFilters = {
+  statusFilter: NotaStatus | "all";
+  docFilter: DocType | "all";
+  q: string;
+  empresa: string;
+  cnpj: string;
+  dateField: DateField;
+  from: string;
+  to: string;
+};
+type NotasPreset = NotasPresetFilters & { name: string };
+
+function loadPresets(): NotasPreset[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const v = JSON.parse(localStorage.getItem(PRESETS_KEY) ?? "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function NotasPresets({
+  current,
+  onApply,
+}: {
+  current: NotasPresetFilters;
+  onApply: (p: NotasPresetFilters) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Lazy init: lê o localStorage no 1º render do cliente (o menu começa fechado,
+  // então não há conteúdo de preset no HTML estático → sem mismatch de hidratação).
+  const [presets, setPresets] = useState<NotasPreset[]>(loadPresets);
+  const [name, setName] = useState("");
+
+  function persist(next: NotasPreset[]) {
+    setPresets(next);
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(next));
+  }
+  function save() {
+    const n = name.trim();
+    if (!n) return;
+    persist([...presets.filter((p) => p.name !== n), { ...current, name: n }]);
+    setName("");
+    toast.success(`Consulta "${n}" salva.`);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors"
+      >
+        Consultas salvas
+        <ChevronDown className="h-3 w-3" aria-hidden />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} aria-hidden />
+          <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 shadow-lg">
+            {presets.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-gray-400">Nenhuma consulta salva ainda.</p>
+            ) : (
+              <ul className="max-h-60 overflow-y-auto">
+                {presets.map((p) => (
+                  <li key={p.name} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onApply(p);
+                        setOpen(false);
+                      }}
+                      className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                    >
+                      {p.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => persist(presets.filter((x) => x.name !== p.name))}
+                      aria-label={`Excluir consulta ${p.name}`}
+                      className="rounded p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-2 flex gap-1 border-t border-gray-100 pt-2 dark:border-gray-800">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && save()}
+                placeholder="Salvar consulta atual como…"
+                className="min-w-0 flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={save}
+                disabled={!name.trim()}
+                className="rounded bg-rps-olive-dark px-2 py-1 text-xs font-medium text-white hover:bg-rps-olive-darker disabled:opacity-50 disabled:pointer-events-none"
+              >
+                Salvar
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ISO do evento mais recente da nota — o MÁXIMO entre chegada/sync/importação,
 // não a ordem do pipeline. (Há notas em que o sync é registrado depois do
 // import; "último evento" deve ser o cronologicamente mais recente.)
@@ -495,30 +711,53 @@ function XmlPageContent() {
     enabled: empresaFiltered,
   });
 
+  // Filtros das notas sem paginação — compartilhados pela lista e pela
+  // exportação CSV (que puxa o mesmo conjunto com um teto maior).
+  const notaFilters: NotaListFilter = {
+    status: statusFilter === "all" ? undefined : statusFilter,
+    doc_type: docFilter === "all" ? undefined : docFilter,
+    q: q || undefined,
+    empresa: empresa || undefined,
+    cnpj: cnpj || undefined,
+    sem_empresa: semEmpresa || undefined,
+    codigo_empresa: codigoEmpresa ?? undefined,
+    codigo_filial: codigoFilial ?? undefined,
+    date_field: from || to ? dateField : undefined,
+    from: from || undefined,
+    to: to || undefined,
+  };
+
   const list = useQuery({
     queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset }],
     queryFn: () =>
-      notasApi
-        .list({
-          status: statusFilter === "all" ? undefined : statusFilter,
-          doc_type: docFilter === "all" ? undefined : docFilter,
-          q: q || undefined,
-          empresa: empresa || undefined,
-          cnpj: cnpj || undefined,
-          sem_empresa: semEmpresa || undefined,
-          codigo_empresa: codigoEmpresa ?? undefined,
-          codigo_filial: codigoFilial ?? undefined,
-          date_field: from || to ? dateField : undefined,
-          from: from || undefined,
-          to: to || undefined,
-          limit: PAGE_SIZE,
-          offset,
-        })
-        .then((r) => r.data),
+      notasApi.list({ ...notaFilters, limit: PAGE_SIZE, offset }).then((r) => r.data),
     refetchInterval: 15_000,
     placeholderData: (prev) => prev,
     enabled: view === "notas",
   });
+
+  const [exporting, setExporting] = useState(false);
+  async function exportNotasCsv() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { data } = await notasApi.list({ ...notaFilters, limit: EXPORT_CAP, offset: 0 });
+      if (data.items.length === 0) {
+        toast.info("Nenhuma nota pra exportar com os filtros atuais.");
+        return;
+      }
+      downloadCsv(`notas-xml-${fileStamp()}`, toCsv(NOTA_CSV_HEADERS, data.items.map(notaToCsvRow)));
+      if (data.total > data.items.length) {
+        toast.warning(`Exportadas ${data.items.length} de ${data.total} notas (teto de ${EXPORT_CAP.toLocaleString("pt-BR")}). Refine os filtros pra exportar o restante.`);
+      } else {
+        toast.success(`${data.items.length.toLocaleString("pt-BR")} nota(s) exportada(s).`);
+      }
+    } catch {
+      toast.error("Falha ao exportar as notas.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const ovGlobal = overview.data;
   // Agregado da empresa filtrada: soma as linhas (empresa, filial) que casam.
@@ -620,6 +859,21 @@ function XmlPageContent() {
     setCodigoFilial(null);
     setSemEmpresa(false);
     setOffset(0);
+  }
+
+  // Snapshot dos filtros explícitos pra salvar como consulta (preset).
+  const currentPreset: NotasPresetFilters = { statusFilter, docFilter, q, empresa, cnpj, dateField, from, to };
+  // Aplica uma consulta salva: seta os filtros e zera a navegação por drill.
+  function applyPreset(p: NotasPresetFilters) {
+    setStatusFilter(p.statusFilter);
+    setDocFilter(p.docFilter);
+    setQ(p.q);
+    setEmpresa(p.empresa);
+    setCnpj(p.cnpj);
+    setDateField(p.dateField);
+    setFrom(p.from);
+    setTo(p.to);
+    clearEmpresaFilter();
   }
 
   // Drill-down da visão por empresa → abre a aba Notas filtrada por aquela
@@ -865,6 +1119,17 @@ function XmlPageContent() {
               </span>
             )}
           </span>
+          <NotasPresets current={currentPreset} onApply={applyPreset} />
+          <button
+            type="button"
+            onClick={exportNotasCsv}
+            disabled={exporting || total === 0}
+            title="Exportar as notas filtradas para CSV (abre no Excel)"
+            className="inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors disabled:opacity-50 disabled:pointer-events-none"
+          >
+            <Download className="h-3 w-3" aria-hidden />
+            {exporting ? "Exportando…" : "Exportar CSV"}
+          </button>
           {hasFilters && (
             <button
               type="button"
@@ -1742,25 +2007,74 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
     setSort((s) => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
 
   const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import;
-  const rows = [...(q.data?.items ?? [])].sort((a, b) => {
-    const aNo = a.codigo_empresa == null;
-    const bNo = b.codigo_empresa == null;
-    if (aNo !== bNo) return aNo ? 1 : -1; // "Sem empresa" sempre por último
+
+  // Quais empresas (codigo_empresa) estão expandidas mostrando as filiais.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggleExpand = (cod: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(cod)) next.delete(cod); else next.add(cod);
+      return next;
+    });
+
+  // Comparador conforme a coluna/direção ativa (string = nome, senão número).
+  const cmp = (a: EmpresaAgg, b: EmpresaAgg) => {
     const av = empValue(a, sort.key);
     const bv = empValue(b, sort.key);
-    // Para strings: localeCompare retorna <0 se av<bv (av "vem antes" na ordem A→Z).
-    // "desc" = Z→A → negar; "asc" = A→Z → direto.
-    // Para números: diff = bv-av → positivo se bv>av (bv na frente = desc).
-    // "desc" = maior primeiro → usar diff; "asc" → negar.
-    const diff =
-      typeof av === "string" && typeof bv === "string"
-        ? sort.dir === "desc"
-          ? bv.localeCompare(av)   // Z→A
-          : av.localeCompare(bv)   // A→Z
-        : sort.dir === "desc"
-          ? (bv as number) - (av as number)
-          : (av as number) - (bv as number);
-    return diff;
+    return typeof av === "string" && typeof bv === "string"
+      ? sort.dir === "desc" ? bv.localeCompare(av) : av.localeCompare(bv)
+      : sort.dir === "desc" ? (bv as number) - (av as number) : (av as number) - (bv as number);
+  };
+
+  // Agrupa por empresa: uma linha-mãe com a soma das filiais (expansível). A
+  // linha "Sem empresa" e empresas de filial única não expandem. Ordena as
+  // filiais dentro do grupo e os grupos entre si pela mesma coluna.
+  type EmpGroup = {
+    key: string;
+    codigo_empresa: number | null;
+    nome: string;
+    filiais: EmpresaAgg[];
+    total: EmpresaAgg;
+    isNoEmpresa: boolean;
+  };
+  const items = q.data?.items ?? [];
+  const byEmpresa = new Map<number, EmpresaAgg[]>();
+  let semEmpresaRow: EmpresaAgg | undefined;
+  for (const e of items) {
+    if (e.codigo_empresa == null) { semEmpresaRow = e; continue; }
+    const arr = byEmpresa.get(e.codigo_empresa) ?? [];
+    arr.push(e);
+    byEmpresa.set(e.codigo_empresa, arr);
+  }
+  const sumAgg = (arr: EmpresaAgg[], cod: number, nome: string): EmpresaAgg => {
+    const s = (k: keyof EmpresaAgg) => arr.reduce((a, e) => a + ((e[k] as number) ?? 0), 0);
+    return {
+      codigo_empresa: cod, codigo_filial: undefined, nome_empresa: nome,
+      arrived: s("arrived"), synced: s("synced"), pending_import: s("pending_import"),
+      imported: s("imported"), import_ignored: s("import_ignored"), in_transit: s("in_transit"),
+    };
+  };
+  const groups: EmpGroup[] = [...byEmpresa.entries()]
+    .map(([cod, arr]) => {
+      const nome = arr.find((e) => e.nome_empresa)?.nome_empresa || `#${cod}`;
+      return {
+        key: String(cod), codigo_empresa: cod, nome,
+        filiais: [...arr].sort(cmp), total: sumAgg(arr, cod, nome), isNoEmpresa: false,
+      };
+    })
+    .sort((a, b) => cmp(a.total, b.total));
+  if (semEmpresaRow) {
+    groups.push({
+      key: "sem-empresa", codigo_empresa: null, nome: "Sem empresa",
+      filiais: [semEmpresaRow], total: semEmpresaRow, isNoEmpresa: true,
+    });
+  }
+  const empresaCount = byEmpresa.size;
+  // Linhas planas (nível filial) pra exportação — granularidade mais útil.
+  const flatRows = [...items].sort((a, b) => {
+    const aNo = a.codigo_empresa == null, bNo = b.codigo_empresa == null;
+    if (aNo !== bNo) return aNo ? 1 : -1;
+    return cmp(a, b);
   });
 
   const numCols = 2 + EMP_COLS.length; // Empresa + colunas numéricas + chevron
@@ -1774,6 +2088,24 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
       >
         {fmtCompact(n)}
       </span>
+    );
+
+  // Células numéricas de uma linha (mãe ou filial) — mesmas colunas/estilo.
+  const numCells = (e: EmpresaAgg) =>
+    EMP_COLS.map((col) =>
+      col.key === "pendentes" ? (
+        <Td key={col.key} className="text-right font-semibold text-gray-900 dark:text-gray-100">
+          <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
+        </Td>
+      ) : col.key === "imported" ? (
+        <Td key={col.key} className="text-right text-gray-500">
+          <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+        </Td>
+      ) : (
+        <Td key={col.key} className="text-right">
+          {cell(empValue(e, col.key) as number, col.tone)}
+        </Td>
+      ),
     );
 
   return (
@@ -1823,9 +2155,35 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
         <span className="text-sm text-gray-500">
           {search.trim() !== debounced || q.isFetching
             ? "Buscando…"
-            : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
+            : `${empresaCount} empresa${empresaCount === 1 ? "" : "s"}`}
         </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (flatRows.length === 0) {
+              toast.info("Nenhuma empresa pra exportar.");
+              return;
+            }
+            downloadCsv(`empresas-xml-${fileStamp()}`, toCsv(EMPRESA_CSV_HEADERS, flatRows.map(empresaToCsvRow)));
+            toast.success(`${flatRows.length} linha(s) exportada(s).`);
+          }}
+          disabled={flatRows.length === 0}
+          title="Exportar as empresas filtradas para CSV (abre no Excel)"
+          className="ml-auto inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors disabled:opacity-50 disabled:pointer-events-none"
+        >
+          <Download className="h-3 w-3" aria-hidden />
+          Exportar CSV
+        </button>
       </div>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+        <span>Agrupado por empresa — clique no <ChevronRight className="inline h-3 w-3" aria-hidden /> para ver as filiais.</span>
+        <span className="inline-flex items-center gap-1">
+          Saúde (% pendente):
+          <span className="inline-block h-2 w-2 rounded-full bg-green-500" aria-hidden /> &lt;10%
+          <span className="ml-1 inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden /> 10–30%
+          <span className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500" aria-hidden /> &gt;30%
+        </span>
+      </p>
       <div className="relative">
         <TableLoadingOverlay isFetching={q.isFetching && !q.isLoading} />
       <Table stickyHeader>
@@ -1860,48 +2218,75 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
         <Th className="w-8" aria-label="Abrir" />
       </THead>
       <TBody>
-        {rows.map((e) => {
-          const isNoEmpresa = e.codigo_empresa == null;
+        {groups.map((g) => {
+          const multi = g.filiais.length > 1;
+          const isOpen = g.codigo_empresa != null && expanded.has(g.codigo_empresa);
+          // Linha-mãe: soma das filiais (multi) ou a própria filial única.
+          const parent = multi ? g.total : g.filiais[0];
           return (
-            <Tr
-              key={isNoEmpresa ? "sem-empresa" : `${e.codigo_empresa}-${e.codigo_filial ?? "x"}`}
-              className="group cursor-pointer"
-              title="Ver notas desta empresa"
-              onClick={() => onDrill(e, { dateField, from, to })}
-            >
-              <Td className="max-w-[280px] truncate text-gray-700 dark:text-gray-300" title={e.nome_empresa}>
-                {isNoEmpresa ? (
-                  <span className="italic text-gray-500">Sem empresa</span>
-                ) : (
-                  e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`
-                )}
-              </Td>
-              {EMP_COLS.map((col) =>
-                col.key === "pendentes" ? (
-                  <Td key={col.key} className="text-right font-semibold text-gray-900 dark:text-gray-100">
-                    <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
+            <Fragment key={g.key}>
+              <Tr
+                className="group cursor-pointer"
+                title="Ver notas desta empresa"
+                onClick={() => onDrill(parent, { dateField, from, to })}
+              >
+                <Td className="max-w-[300px] text-gray-700 dark:text-gray-300" title={g.isNoEmpresa ? undefined : g.nome}>
+                  <span className="flex items-center gap-2">
+                    {multi ? (
+                      <button
+                        type="button"
+                        onClick={(ev) => { ev.stopPropagation(); toggleExpand(g.codigo_empresa as number); }}
+                        aria-label={isOpen ? "Recolher filiais" : "Expandir filiais"}
+                        aria-expanded={isOpen}
+                        className="shrink-0 rounded text-gray-400 hover:text-rps-olive-dark"
+                      >
+                        {isOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+                      </button>
+                    ) : (
+                      <span className="w-4 shrink-0" aria-hidden />
+                    )}
+                    <HealthDot e={parent} />
+                    <span className="truncate">
+                      {g.isNoEmpresa ? <span className="italic text-gray-500">Sem empresa</span> : g.nome}
+                      {multi && <span className="ml-1 text-xs text-gray-400">· {g.filiais.length} filiais</span>}
+                    </span>
+                  </span>
+                </Td>
+                {numCells(parent)}
+                <Td className="text-right">
+                  <ChevronRight
+                    className="ml-auto h-4 w-4 text-gray-300 transition group-hover:text-rps-olive-dark dark:text-gray-600"
+                    aria-hidden
+                  />
+                </Td>
+              </Tr>
+              {multi && isOpen && g.filiais.map((f) => (
+                <Tr
+                  key={`${g.key}-${f.codigo_filial ?? "x"}`}
+                  className="group cursor-pointer bg-gray-50/60 dark:bg-gray-900/40"
+                  title="Ver notas desta filial"
+                  onClick={() => onDrill(f, { dateField, from, to })}
+                >
+                  <Td className="max-w-[300px] text-gray-600 dark:text-gray-400">
+                    <span className="flex items-center gap-2 pl-6">
+                      <HealthDot e={f} />
+                      <span className="truncate">Filial #{f.codigo_filial ?? 1}</span>
+                    </span>
                   </Td>
-                ) : col.key === "imported" ? (
-                  <Td key={col.key} className="text-right text-gray-500">
-                    <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+                  {numCells(f)}
+                  <Td className="text-right">
+                    <ChevronRight
+                      className="ml-auto h-4 w-4 text-gray-300 transition group-hover:text-rps-olive-dark dark:text-gray-600"
+                      aria-hidden
+                    />
                   </Td>
-                ) : (
-                  <Td key={col.key} className="text-right">
-                    {cell(empValue(e, col.key) as number, col.tone)}
-                  </Td>
-                ),
-              )}
-              <Td className="text-right">
-                <ChevronRight
-                  className="ml-auto h-4 w-4 text-gray-300 transition group-hover:text-rps-olive-dark dark:text-gray-600"
-                  aria-hidden
-                />
-              </Td>
-            </Tr>
+                </Tr>
+              ))}
+            </Fragment>
           );
         })}
-        {q.isError && rows.length === 0 && <ErrorRow colSpan={numCols} onRetry={() => q.refetch()} />}
-        {!q.isLoading && !q.isError && rows.length === 0 && (
+        {q.isError && flatRows.length === 0 && <ErrorRow colSpan={numCols} onRetry={() => q.refetch()} />}
+        {!q.isLoading && !q.isError && flatRows.length === 0 && (
           <EmptyRow colSpan={numCols}>
             {debounced
               ? `Nenhuma empresa encontrada para “${debounced}”.`
