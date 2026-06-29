@@ -4,8 +4,9 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info, Download } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   notasApi,
   xmlMetricsApi,
@@ -13,6 +14,8 @@ import {
   XML_STATUS_LABEL,
   XML_STATUS_STYLE,
   XML_DOC_TYPE_LABEL,
+  type Nota,
+  type NotaListFilter,
   type NotaStatus,
   type DocType,
   type DateField,
@@ -20,6 +23,7 @@ import {
   type Overview,
   type TimeseriesRange,
 } from "@/lib/xml-api";
+import { toCsv, downloadCsv } from "@/lib/csv";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton, SkeletonRow } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
@@ -381,6 +385,73 @@ function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
 
+// ── Exportação CSV ────────────────────────────────────────────────────────────
+// Teto de linhas por exportação de notas. É client-side (puxa o conjunto numa
+// requisição só), então limitamos pra não derrubar o navegador num filtro amplo
+// — e avisamos quando trunca (sem corte silencioso).
+const EXPORT_CAP = 50_000;
+
+// Timestamp pro nome do arquivo (em handler, não em render → new Date() ok).
+function fileStamp(): string {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+}
+
+// Timestamp formatado pro CSV, vazio (não "—") quando ausente.
+function csvTs(s?: string): string {
+  return s ? fmtTs(s) : "";
+}
+
+const NOTA_CSV_HEADERS = [
+  "Chave de acesso", "Número", "Tipo", "Status", "Empresa", "Cód. empresa",
+  "Cód. filial", "Emitente", "CNPJ emitente", "Destinatário", "CNPJ destinatário",
+  "Valor", "Emissão", "Chegada", "Sincronização", "Importação", "Via robô",
+  "Motivo ignorada",
+];
+
+function notaToCsvRow(n: Nota): (string | number | null)[] {
+  return [
+    n.chave_acesso,
+    n.numero_nota ?? "",
+    XML_DOC_TYPE_LABEL[n.doc_type],
+    XML_STATUS_LABEL[n.status],
+    n.nome_empresa ?? "",
+    n.codigo_empresa ?? "",
+    n.codigo_filial ?? "",
+    n.nome_emitente ?? "",
+    n.cnpj_emitente ?? "",
+    n.nome_destinatario ?? "",
+    n.cnpj_destinatario ?? "",
+    // pt-BR: vírgula decimal pro Excel ler como número.
+    n.valor_total != null ? String(n.valor_total).replace(".", ",") : "",
+    n.data_emissao ?? "",
+    csvTs(n.arrived_at),
+    csvTs(n.synced_at),
+    csvTs(n.imported_at),
+    n.via_robo === true ? "Sim" : "",
+    n.motivo_ignorado ?? "",
+  ];
+}
+
+const EMPRESA_CSV_HEADERS = [
+  "Empresa", "Cód. empresa", "Cód. filial", "Pendentes", "A sincronizar",
+  "Sincronizadas", "Aguardando importação", "Importadas", "Ignoradas", "Em trânsito",
+];
+
+function empresaToCsvRow(e: EmpresaAgg): (string | number | null)[] {
+  return [
+    e.codigo_empresa == null ? "Sem empresa" : (e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`),
+    e.codigo_empresa ?? "",
+    e.codigo_filial ?? "",
+    e.arrived + e.synced + e.pending_import,
+    e.arrived,
+    e.synced,
+    e.pending_import,
+    e.imported,
+    e.import_ignored,
+    e.in_transit,
+  ];
+}
+
 // ISO do evento mais recente da nota — o MÁXIMO entre chegada/sync/importação,
 // não a ordem do pipeline. (Há notas em que o sync é registrado depois do
 // import; "último evento" deve ser o cronologicamente mais recente.)
@@ -495,30 +566,53 @@ function XmlPageContent() {
     enabled: empresaFiltered,
   });
 
+  // Filtros das notas sem paginação — compartilhados pela lista e pela
+  // exportação CSV (que puxa o mesmo conjunto com um teto maior).
+  const notaFilters: NotaListFilter = {
+    status: statusFilter === "all" ? undefined : statusFilter,
+    doc_type: docFilter === "all" ? undefined : docFilter,
+    q: q || undefined,
+    empresa: empresa || undefined,
+    cnpj: cnpj || undefined,
+    sem_empresa: semEmpresa || undefined,
+    codigo_empresa: codigoEmpresa ?? undefined,
+    codigo_filial: codigoFilial ?? undefined,
+    date_field: from || to ? dateField : undefined,
+    from: from || undefined,
+    to: to || undefined,
+  };
+
   const list = useQuery({
     queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset }],
     queryFn: () =>
-      notasApi
-        .list({
-          status: statusFilter === "all" ? undefined : statusFilter,
-          doc_type: docFilter === "all" ? undefined : docFilter,
-          q: q || undefined,
-          empresa: empresa || undefined,
-          cnpj: cnpj || undefined,
-          sem_empresa: semEmpresa || undefined,
-          codigo_empresa: codigoEmpresa ?? undefined,
-          codigo_filial: codigoFilial ?? undefined,
-          date_field: from || to ? dateField : undefined,
-          from: from || undefined,
-          to: to || undefined,
-          limit: PAGE_SIZE,
-          offset,
-        })
-        .then((r) => r.data),
+      notasApi.list({ ...notaFilters, limit: PAGE_SIZE, offset }).then((r) => r.data),
     refetchInterval: 15_000,
     placeholderData: (prev) => prev,
     enabled: view === "notas",
   });
+
+  const [exporting, setExporting] = useState(false);
+  async function exportNotasCsv() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { data } = await notasApi.list({ ...notaFilters, limit: EXPORT_CAP, offset: 0 });
+      if (data.items.length === 0) {
+        toast.info("Nenhuma nota pra exportar com os filtros atuais.");
+        return;
+      }
+      downloadCsv(`notas-xml-${fileStamp()}`, toCsv(NOTA_CSV_HEADERS, data.items.map(notaToCsvRow)));
+      if (data.total > data.items.length) {
+        toast.warning(`Exportadas ${data.items.length} de ${data.total} notas (teto de ${EXPORT_CAP.toLocaleString("pt-BR")}). Refine os filtros pra exportar o restante.`);
+      } else {
+        toast.success(`${data.items.length.toLocaleString("pt-BR")} nota(s) exportada(s).`);
+      }
+    } catch {
+      toast.error("Falha ao exportar as notas.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const ovGlobal = overview.data;
   // Agregado da empresa filtrada: soma as linhas (empresa, filial) que casam.
@@ -865,6 +959,16 @@ function XmlPageContent() {
               </span>
             )}
           </span>
+          <button
+            type="button"
+            onClick={exportNotasCsv}
+            disabled={exporting || total === 0}
+            title="Exportar as notas filtradas para CSV (abre no Excel)"
+            className="inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors disabled:opacity-50 disabled:pointer-events-none"
+          >
+            <Download className="h-3 w-3" aria-hidden />
+            {exporting ? "Exportando…" : "Exportar CSV"}
+          </button>
           {hasFilters && (
             <button
               type="button"
@@ -1825,6 +1929,23 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
             ? "Buscando…"
             : `${rows.length} empresa${rows.length === 1 ? "" : "s"}`}
         </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (rows.length === 0) {
+              toast.info("Nenhuma empresa pra exportar.");
+              return;
+            }
+            downloadCsv(`empresas-xml-${fileStamp()}`, toCsv(EMPRESA_CSV_HEADERS, rows.map(empresaToCsvRow)));
+            toast.success(`${rows.length} empresa(s) exportada(s).`);
+          }}
+          disabled={rows.length === 0}
+          title="Exportar as empresas filtradas para CSV (abre no Excel)"
+          className="ml-auto inline-flex items-center gap-1 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors disabled:opacity-50 disabled:pointer-events-none"
+        >
+          <Download className="h-3 w-3" aria-hidden />
+          Exportar CSV
+        </button>
       </div>
       <div className="relative">
         <TableLoadingOverlay isFetching={q.isFetching && !q.isLoading} />
