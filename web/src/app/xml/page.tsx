@@ -709,9 +709,9 @@ function XmlPageContent() {
             <button
               key={s.value}
               onClick={() => {
-                // trocar de status zera o filtro de empresa — senão ele fica
-                // grudado e o resultado não bate com os cards globais.
-                clearEmpresaFilter();
+                // Mantém o filtro de empresa ao trocar de status: os chips e
+                // cards já refletem a empresa filtrada (statusChipCount usa
+                // empOv), então empresa + status combinam de forma coerente.
                 reset(setStatusFilter)(s.value);
               }}
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
