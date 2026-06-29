@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info } from "lucide-react";
 import Link from "next/link";
 import {
   notasApi,
@@ -303,6 +303,80 @@ function fmtDur(s?: number): string {
   return m ? `${h}h ${m}min` : `${h}h`;
 }
 
+// ── SLA de latência ───────────────────────────────────────────────────────────
+// Semáforo das latências de processamento (decisão do Enzzo 2026-06-29):
+// verde < 24h · amarelo 24–72h · vermelho > 72h. Mesmos limiares nas duas
+// transições (chegada→sync e sync→import).
+const SLA_WARN_S = 24 * 3600;
+const SLA_CRIT_S = 72 * 3600;
+type SlaTone = "ok" | "warn" | "crit" | "none";
+function slaTone(s?: number): SlaTone {
+  if (s == null) return "none";
+  if (s < SLA_WARN_S) return "ok";
+  if (s < SLA_CRIT_S) return "warn";
+  return "crit";
+}
+const SLA_DOT: Record<SlaTone, string> = {
+  ok: "bg-green-500",
+  warn: "bg-amber-500",
+  crit: "bg-red-500",
+  none: "bg-gray-300 dark:bg-gray-600",
+};
+const SLA_VALUE: Record<SlaTone, string> = {
+  ok: "text-green-700 dark:text-green-400",
+  warn: "text-amber-700 dark:text-amber-400",
+  crit: "text-red-700 dark:text-red-400",
+  none: "text-gray-500",
+};
+const SLA_WORD: Record<SlaTone, string> = {
+  ok: "dentro do SLA",
+  warn: "atenção",
+  crit: "fora do SLA",
+  none: "sem dados",
+};
+
+// Tile de latência da manchete: p50 grande com cor de SLA + dot, p95 embaixo.
+// O p50 é a métrica que decide a cor (mediana = experiência típica).
+function LatencyHealthTile({ label, p50, p95 }: { label: string; p50?: number; p95?: number }) {
+  const tone = slaTone(p50);
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className={`inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full ${SLA_DOT[tone]}`} aria-hidden />
+        <span className={`text-2xl font-bold ${SLA_VALUE[tone]}`}>{fmtDur(p50)}</span>
+        <span className="text-xs text-gray-400">p50 · {SLA_WORD[tone]}</span>
+      </div>
+      <p className="mt-0.5 text-xs text-gray-500">p95 {fmtDur(p95)}</p>
+    </div>
+  );
+}
+
+// ── Glossário dos estados ─────────────────────────────────────────────────────
+// Explica cada status em linguagem do fiscal — sem depender de hover/tooltip.
+const STATUS_GLOSSARY: { status: NotaStatus; desc: string }[] = [
+  { status: "arrived", desc: "Chegou ao tracker (arquivo XML detectado), mas ainda não foi sincronizada." },
+  { status: "synced", desc: "Sincronizada; aguardando ser vista no Athenas para importar." },
+  { status: "pending_import", desc: "Já vista no Athenas, ainda não importada." },
+  { status: "imported", desc: "Importada no Athenas (por robô ou manualmente)." },
+  { status: "import_ignored", desc: "Marcada para não ser importada — o motivo aparece no detalhe da nota." },
+];
+
+function StatusGlossary() {
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 p-3">
+      <ul className="space-y-1.5">
+        {STATUS_GLOSSARY.map((g) => (
+          <li key={g.status} className="flex items-start gap-2 text-sm">
+            <Badge className={`${XML_STATUS_STYLE[g.status]} shrink-0`}>{XML_STATUS_LABEL[g.status]}</Badge>
+            <span className="text-gray-600 dark:text-gray-400">{g.desc}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
@@ -373,6 +447,7 @@ function XmlPageContent() {
   const [to, setTo] = useState(() => sp.get("to") ?? "");
   const [offset, setOffset] = useState(() => Number(sp.get("offset")) || 0);
   const [selected, setSelected] = useState<string | null>(null);
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   type NotasSortKey = "chave" | "numero" | "tipo" | "empresa" | "emitente" | "status" | "evento";
   const [notasSort, setNotasSort] = useState<{ key: NotasSortKey; dir: "asc" | "desc" } | null>(null);
   const toggleNotasSort = (key: NotasSortKey) =>
@@ -618,14 +693,24 @@ function XmlPageContent() {
           dia), por isso ela leva hint próprio. Resolve a dúvida "esses números
           são de quando?" sem depender de backend novo (Fase 1). */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
           Estado atual do pipeline
           {empresaFilterLabel && <span className="font-normal text-gray-400"> · {empresaFilterLabel}</span>}
+          <button
+            type="button"
+            onClick={() => setGlossaryOpen((o) => !o)}
+            aria-expanded={glossaryOpen}
+            className="inline-flex items-center gap-1 rounded text-xs font-normal text-gray-400 hover:text-rps-olive-dark transition-colors"
+          >
+            <Info className="h-3.5 w-3.5" aria-hidden />
+            Entenda os estados
+          </button>
         </h2>
         <p className="text-xs text-gray-400">
           Foto de agora: todas as notas paradas em cada etapa, independente de quando entraram.
         </p>
       </div>
+      {glossaryOpen && <StatusGlossary />}
       {/* Cards do pipeline. Quando há filtro de empresa, refletem os números
           daquela empresa. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
@@ -639,20 +724,42 @@ function XmlPageContent() {
         )}
         <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={cardsLoading} title="Notas marcadas como ignoradas — contagem de agora." />
       </div>
+      {/* Manchete de saúde do processamento: backlog + latências com semáforo de
+          SLA. Antes era um rodapé cinza pequeno — promovido a destaque porque é
+          a informação de diagnóstico mais importante da tela. */}
       {ov && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-          <span>
-            <b className="text-gray-700 dark:text-gray-300" title={fmtFull(pendentes)}>{fmtCompact(pendentes)}</b> pendentes
-            <span className="text-gray-400"> (chegou + sincronizado + aguardando importação)</span>
-            {" · "}
-            <span title={fmtFull(ov.in_transit)}>{fmtCompact(ov.in_transit)}</span> em trânsito
-          </span>
-          <span title={`Percentis das transições dos últimos 30 dias; exclui backfill histórico.${empresaFiltered ? " Latência é sempre global (não por empresa)." : ""}`}>
-            Latência chegada→sync (30d{empresaFiltered ? ", global" : ""}): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_arrival_sync_p50_s)}</b> · p95 {fmtDur(ov.lat_arrival_sync_p95_s)}
-          </span>
-          <span title={`Percentis das transições dos últimos 30 dias; exclui backfill histórico.${empresaFiltered ? " Latência é sempre global (não por empresa)." : ""}`}>
-            Latência sync→import (30d{empresaFiltered ? ", global" : ""}): p50 <b className="text-gray-700 dark:text-gray-300">{fmtDur(ov.lat_sync_import_p50_s)}</b> · p95 {fmtDur(ov.lat_sync_import_p95_s)}
-          </span>
+        <div className="space-y-1">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 shadow-sm">
+              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Backlog pendente</p>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-gray-900 dark:text-gray-100" title={fmtFull(pendentes)}>
+                  {fmtCompact(pendentes)}
+                </span>
+                <span className="text-xs text-gray-400">notas no pipeline</span>
+              </div>
+              <p className="mt-0.5 text-xs text-gray-500">
+                <span title={fmtFull(ov.in_transit)}>{fmtCompact(ov.in_transit)}</span> em trânsito
+              </p>
+            </div>
+            <LatencyHealthTile
+              label={`Chegada → sync (30d${empresaFiltered ? ", global" : ""})`}
+              p50={ov.lat_arrival_sync_p50_s}
+              p95={ov.lat_arrival_sync_p95_s}
+            />
+            <LatencyHealthTile
+              label={`Sync → importação (30d${empresaFiltered ? ", global" : ""})`}
+              p50={ov.lat_sync_import_p50_s}
+              p95={ov.lat_sync_import_p95_s}
+            />
+          </div>
+          <p className="text-xs text-gray-400">
+            Pendentes = chegou + sincronizado + aguardando importação. Latência: percentis
+            das transições dos últimos 30 dias (exclui backfill). SLA: <b className="font-medium text-green-700 dark:text-green-400">&lt;24h</b> ·{" "}
+            <b className="font-medium text-amber-700 dark:text-amber-400">24–72h</b> ·{" "}
+            <b className="font-medium text-red-700 dark:text-red-400">&gt;72h</b>.
+            {empresaFiltered ? " A latência é sempre global (não por empresa)." : ""}
+          </p>
         </div>
       )}
 
