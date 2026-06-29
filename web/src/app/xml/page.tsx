@@ -30,9 +30,14 @@ import { ErrorRow, ErrorState } from "@/components/ui/error-state";
 
 const PAGE_SIZE = 50;
 
-// "Travada"/"Sumida" ficam de fora: o backend nunca produz esses status (sempre
-// 0), então seriam ruído. Os cards de Travadas/Sumidas no topo só aparecem se
-// algum dia vier > 0.
+// Filtros carregados no drill-down Empresas → Notas (mantém a consistência
+// entre as abas). Por enquanto só a janela de data; tipo de documento e
+// direção (entrada/saída) entram quando o tracker expor esses filtros em
+// /empresas.
+type DrillFilters = { dateField: DateField; from: string; to: string };
+
+// Status filtráveis = as etapas reais do pipeline. ("Travada"/"Sumida" foram
+// removidos do produto: o backend nunca os produzia.)
 const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "arrived", label: "A Sincronizar" },
@@ -459,8 +464,6 @@ function XmlPageContent() {
       pending_import: sum("pending_import"),
       imported: sum("imported"),
       import_ignored: sum("import_ignored"),
-      stuck: sum("stuck"),
-      lost: sum("lost"),
       in_transit: sum("in_transit"),
       imported_today: 0, // não existe por empresa
       lat_arrival_sync_p50_s: ovGlobal?.lat_arrival_sync_p50_s,
@@ -475,7 +478,7 @@ function XmlPageContent() {
   const rawItems = list.data?.items ?? [];
   // Status ordering for sort: pipeline stage order.
   const STATUS_ORDER: Record<NotaStatus, number> = {
-    arrived: 0, synced: 1, pending_import: 2, imported: 3, import_ignored: 4, stuck: 5, lost: 6,
+    arrived: 0, synced: 1, pending_import: 2, imported: 3, import_ignored: 4,
   };
   const items = notasSort
     ? [...rawItems].sort((a, b) => {
@@ -495,13 +498,12 @@ function XmlPageContent() {
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  // "Pendente" = mesma definição do tracker (arrived+synced+pending_import+stuck;
-  // stuck conta, lost não, terminais fora). Mantém cards e filtro alinhados.
-  const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import + ov.stuck : 0;
+  // "Pendente" = notas ainda no pipeline (chegou + sincronizado + aguardando
+  // importação). Terminais (importada/ignorada) ficam fora. Mantém cards e filtro
+  // alinhados.
+  const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import : 0;
   // Loading dos cards: empresa quando filtrada (espera o agregado), senão global.
   const cardsLoading = empresaFiltered ? empresaAggQ.isLoading && !empOv : overview.isLoading;
-  const showStuck = cardsLoading || (ov?.stuck ?? 0) > 0;
-  const showLost = cardsLoading || (ov?.lost ?? 0) > 0;
 
   function reset<T>(setter: (v: T) => void) {
     return (v: T) => {
@@ -546,10 +548,18 @@ function XmlPageContent() {
   }
 
   // Drill-down da visão por empresa → abre a aba Notas filtrada por aquela
-  // (empresa, filial), ou pelo bucket "sem empresa".
-  function drillToEmpresa(row: EmpresaAgg) {
+  // (empresa, filial), ou pelo bucket "sem empresa". `filters` carrega os
+  // filtros que estavam ativos na aba Empresas (data/janela) pra manter a
+  // consistência ao trocar de aba; sem `filters` (ex.: drill do Painel) a
+  // janela de data atual da aba Notas é preservada.
+  function drillToEmpresa(row: EmpresaAgg, filters?: DrillFilters) {
     setStatusFilter("all");
     setOffset(0);
+    if (filters) {
+      setDateField(filters.dateField);
+      setFrom(filters.from);
+      setTo(filters.to);
+    }
     if (row.codigo_empresa == null) {
       setSemEmpresa(true);
       setCodigoEmpresa(null);
@@ -616,9 +626,9 @@ function XmlPageContent() {
           Foto de agora: todas as notas paradas em cada etapa, independente de quando entraram.
         </p>
       </div>
-      {/* Cards do pipeline (Travadas/Sumidas só aparecem quando > 0). Quando há
-          filtro de empresa, refletem os números daquela empresa. */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      {/* Cards do pipeline. Quando há filtro de empresa, refletem os números
+          daquela empresa. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         <StatCard label="A Sincronizar" value={ov?.arrived ?? "—"} tone={ov?.arrived ? "warning" : "neutral"} loading={cardsLoading} title="Notas que chegaram mas ainda não sincronizaram — contagem de agora." />
         <StatCard label="Sincronizadas" value={ov?.synced ?? "—"} loading={cardsLoading} title="Notas sincronizadas aguardando o próximo passo — contagem de agora." />
         <StatCard label="Aguardando Importação" value={ov?.pending_import ?? "—"} loading={cardsLoading} title="Vistas no Athenas, ainda não importadas — contagem de agora." />
@@ -628,18 +638,12 @@ function XmlPageContent() {
           <StatCard label="Importadas hoje" value={ov?.imported_today ?? "—"} hint="somente hoje" tone="success" loading={cardsLoading} title="Fluxo do dia: notas importadas hoje. É a única contagem por período — o filtro 'Importada' mostra todas." />
         )}
         <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={cardsLoading} title="Notas marcadas como ignoradas — contagem de agora." />
-        {showStuck && (
-          <StatCard label="Travadas" value={ov?.stuck ?? "—"} tone="danger" loading={cardsLoading} title="Paradas além do esperado — contagem de agora." />
-        )}
-        {showLost && (
-          <StatCard label="Sumidas" value={ov?.lost ?? "—"} tone="danger" loading={cardsLoading} title="Sem evento há tempo demais — contagem de agora." />
-        )}
       </div>
       {ov && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
           <span>
             <b className="text-gray-700 dark:text-gray-300" title={fmtFull(pendentes)}>{fmtCompact(pendentes)}</b> pendentes
-            <span className="text-gray-400"> (chegou + sincronizado + aguardando + travada)</span>
+            <span className="text-gray-400"> (chegou + sincronizado + aguardando importação)</span>
             {" · "}
             <span title={fmtFull(ov.in_transit)}>{fmtCompact(ov.in_transit)}</span> em trânsito
           </span>
@@ -946,8 +950,6 @@ const PAINEL_STATUSES: NotaStatus[] = [
   "pending_import",
   "imported",
   "import_ignored",
-  "stuck",
-  "lost",
 ];
 
 // Cor sólida da barra por status (o badge usa XML_STATUS_STYLE; aqui é só o
@@ -958,8 +960,6 @@ const STATUS_BAR_FILL: Record<NotaStatus, string> = {
   pending_import: "bg-amber-400",
   imported: "bg-rps-olive-dark",
   import_ignored: "bg-gray-400 dark:bg-gray-600",
-  stuck: "bg-orange-400",
-  lost: "bg-red-500",
 };
 
 function statusCount(ov: Overview, s: NotaStatus): number {
@@ -974,10 +974,6 @@ function statusCount(ov: Overview, s: NotaStatus): number {
       return ov.imported;
     case "import_ignored":
       return ov.import_ignored;
-    case "stuck":
-      return ov.stuck;
-    case "lost":
-      return ov.lost;
   }
 }
 
@@ -1419,17 +1415,14 @@ function PainelView({
 
   // "imported" fica FORA das barras: é ordens de grandeza maior (milhões de
   // notas terminais) e achataria as demais. Plotamos o resto e mostramos o
-  // total de importadas à parte. stuck/lost também saem (o backend nunca
-  // produz, seriam barras zeradas — mesmo motivo dos filtros da aba Notas).
-  const barStatuses = PAINEL_STATUSES.filter(
-    (s) => s !== "imported" && s !== "stuck" && s !== "lost",
-  );
+  // total de importadas à parte.
+  const barStatuses = PAINEL_STATUSES.filter((s) => s !== "imported");
   const counts = ov ? barStatuses.map((s) => ({ status: s, count: statusCount(ov, s) })) : [];
   const maxCount = Math.max(1, ...counts.map((c) => c.count));
   const importedTotal = ov ? ov.imported : 0;
   const grandTotal = ov ? PAINEL_STATUSES.reduce((a, s) => a + statusCount(ov, s), 0) : 0;
 
-  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import + e.stuck;
+  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import;
   const topEmpresas = [...(empresas.data?.items ?? [])]
     .filter((e) => e.codigo_empresa != null && pend(e) > 0)
     .sort((a, b) => pend(b) - pend(a))
@@ -1585,30 +1578,28 @@ function SortIcon({ active, dir }: { active: boolean; dir?: "asc" | "desc" }) {
     : <ChevronDown className="h-3 w-3" aria-hidden />;
 }
 
-type EmpSortKey = "empresa" | "pendentes" | "arrived" | "synced" | "pending_import" | "stuck" | "lost" | "imported";
+type EmpSortKey = "empresa" | "pendentes" | "arrived" | "synced" | "pending_import" | "imported";
 
 // Colunas numéricas da tabela de Empresas, com rótulo curto + tooltip (o
 // cabeçalho é abreviado por espaço) + tom de cor. Ordem = ordem na tabela.
 const EMP_COLS: { key: EmpSortKey; label: string; title: string; tone?: "danger" | "warn" }[] = [
-  { key: "pendentes", label: "Pendentes", title: "Chegou + sincronizado + aguardando + travada" },
+  { key: "pendentes", label: "Pendentes", title: "Chegou + sincronizado + aguardando importação" },
   { key: "arrived", label: "A sinc.", title: "A sincronizar", tone: "warn" },
   { key: "synced", label: "Sincr.", title: "Sincronizadas" },
   { key: "pending_import", label: "Aguard.", title: "Aguardando importação" },
-  { key: "stuck", label: "Travadas", title: "Travadas", tone: "danger" },
-  { key: "lost", label: "Sumidas", title: "Sumidas", tone: "danger" },
   { key: "imported", label: "Importadas", title: "Importadas (acumulado histórico)" },
 ];
 
 function empValue(e: EmpresaAgg, key: EmpSortKey): number | string {
   if (key === "empresa") return e.nome_empresa ?? "";
-  if (key === "pendentes") return e.arrived + e.synced + e.pending_import + e.stuck;
+  if (key === "pendentes") return e.arrived + e.synced + e.pending_import;
   return e[key];
 }
 
 // Visão por empresa: uma linha por (empresa, filial) + a linha "Sem empresa"
 // (sempre fixada por último). Ordenável por qualquer coluna numérica (default
 // pendentes desc). Drill-down reusa os filtros de URL da aba Notas.
-function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
+function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFilters) => void }) {
   const [search, setSearch] = useState("");
   // 150ms: mais responsivo que 300ms; o backend /empresas com ?q= é leve pois
   // retorna apenas matches parciais por nome (não todas as empresas).
@@ -1643,7 +1634,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
   const toggleSort = (key: EmpSortKey) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
 
-  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import + e.stuck;
+  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import;
   const rows = [...(q.data?.items ?? [])].sort((a, b) => {
     const aNo = a.codigo_empresa == null;
     const bNo = b.codigo_empresa == null;
@@ -1769,7 +1760,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg) => void }) {
               key={isNoEmpresa ? "sem-empresa" : `${e.codigo_empresa}-${e.codigo_filial ?? "x"}`}
               className="group cursor-pointer"
               title="Ver notas desta empresa"
-              onClick={() => onDrill(e)}
+              onClick={() => onDrill(e, { dateField, from, to })}
             >
               <Td className="max-w-[280px] truncate text-gray-700 dark:text-gray-300" title={e.nome_empresa}>
                 {isNoEmpresa ? (

@@ -35,9 +35,7 @@ export type NotaStatus =
   | "synced"
   | "imported"
   | "import_ignored"
-  | "pending_import"
-  | "stuck"
-  | "lost";
+  | "pending_import";
 
 export interface Nota {
   chave_acesso: string;
@@ -90,8 +88,6 @@ export interface Overview {
   imported: number;
   import_ignored: number;
   pending_import: number;
-  stuck: number;
-  lost: number;
   in_transit: number;
   imported_today: number;
   lat_arrival_sync_p50_s?: number;
@@ -111,8 +107,6 @@ export interface EmpresaAgg {
   imported: number;
   import_ignored: number;
   pending_import: number;
-  stuck: number;
-  lost: number;
 }
 
 export type DateField = "emissao" | "arrived" | "synced" | "imported";
@@ -258,8 +252,6 @@ export const XML_STATUS_LABEL: Record<NotaStatus, string> = {
   imported: "Importada",
   import_ignored: "Ignorada",
   pending_import: "Aguardando Importação",
-  stuck: "Travada",
-  lost: "Sumida",
 };
 
 export const XML_STATUS_STYLE: Record<NotaStatus, string> = {
@@ -268,8 +260,6 @@ export const XML_STATUS_STYLE: Record<NotaStatus, string> = {
   imported: "bg-rps-olive-soft text-rps-olive-dark",
   import_ignored: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-400",
   pending_import: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  stuck: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300",
-  lost: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
 };
 
 export const XML_DOC_TYPE_LABEL: Record<DocType, string> = {
