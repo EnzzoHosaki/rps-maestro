@@ -94,12 +94,49 @@ export interface Overview {
   imported: number;
   import_ignored: number;
   pending_import: number;
+  // "flow" só quando há janela de data (contagens do recorte, não estoque).
+  // Ausente = snapshot do estado atual.
+  mode?: "flow";
   in_transit: number;
-  imported_today: number;
-  lat_arrival_sync_p50_s?: number;
+  imported_today: number; // sempre global (hoje)
+  lat_arrival_sync_p50_s?: number; // sempre 30d
   lat_arrival_sync_p95_s?: number;
   lat_sync_import_p50_s?: number;
   lat_sync_import_p95_s?: number;
+}
+
+// Filtro do /metrics/overview (item #5). Sem nada = snapshot global. Com janela
+// (date_field+from/to) e/ou filtros = recompute por status no recorte (mode:flow
+// quando há janela). NÃO aceita direction (coluna só existe em notas/empresas).
+export interface OverviewFilter {
+  date_field?: DateField;
+  from?: string;
+  to?: string;
+  codigo_empresa?: number;
+  codigo_filial?: number;
+  doc_type?: DocType;
+}
+
+// Aging do backlog (GET /metrics/aging, item #4). Faixas de idade do que está
+// pendente, ancorado no evento que iniciou a espera (to_sync = arrived_at;
+// to_import = synced_at). `max_days` = limite superior exclusivo (ausente na
+// faixa aberta >30d).
+export interface AgingBucket {
+  label: string;
+  max_days?: number;
+  count: number;
+}
+export interface Aging {
+  anchor_to_sync: string;
+  anchor_to_import: string;
+  to_sync: AgingBucket[];
+  to_import: AgingBucket[];
+}
+export interface AgingFilter {
+  codigo_empresa?: number;
+  codigo_filial?: number;
+  doc_type?: DocType;
+  direction?: Direction;
 }
 
 export interface EmpresaAgg {
@@ -172,7 +209,28 @@ export const notasApi = {
 };
 
 export const xmlMetricsApi = {
-  overview: () => xmlApi.get<Overview>("/metrics/overview"),
+  // Sem filtro = snapshot global (chave de cache fixa no tracker). Com janela/
+  // filtros = recompute no recorte (mode:flow quando há janela).
+  overview: (f: OverviewFilter = {}) => {
+    const params: Record<string, string | number> = {};
+    if (f.from || f.to) {
+      if (f.date_field) params.date_field = f.date_field;
+      if (f.from) params.from = f.from;
+      if (f.to) params.to = f.to;
+    }
+    if (f.codigo_empresa != null) params.codigo_empresa = f.codigo_empresa;
+    if (f.codigo_filial != null) params.codigo_filial = f.codigo_filial;
+    if (f.doc_type) params.doc_type = f.doc_type;
+    return xmlApi.get<Overview>("/metrics/overview", { params });
+  },
+  aging: (f: AgingFilter = {}) => {
+    const params: Record<string, string | number> = {};
+    if (f.codigo_empresa != null) params.codigo_empresa = f.codigo_empresa;
+    if (f.codigo_filial != null) params.codigo_filial = f.codigo_filial;
+    if (f.doc_type) params.doc_type = f.doc_type;
+    if (f.direction) params.direction = f.direction;
+    return xmlApi.get<Aging>("/metrics/aging", { params });
+  },
   timeseries: (range: TimeseriesRange = "30d", bucket: TimeseriesBucket = "day") =>
     xmlApi.get<Timeseries>("/metrics/timeseries", { params: { range, bucket } }),
 };
