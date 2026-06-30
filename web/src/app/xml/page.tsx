@@ -22,6 +22,7 @@ import {
   type DateField,
   type EmpresaAgg,
   type Overview,
+  type AgingBucket,
   type TimeseriesRange,
 } from "@/lib/xml-api";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -44,6 +45,29 @@ type DrillFilters = {
   docFilter: DocType | "all";
   direction: Direction | "all";
 };
+
+// Seletor de período dos cards (item #5). "all" = snapshot do estado atual;
+// os demais aplicam uma janela (modo flow: contagens do recorte, não estoque).
+type CardRange = "all" | "today" | "7d" | "30d";
+const CARD_RANGES: { value: CardRange; label: string }[] = [
+  { value: "all", label: "Tudo" },
+  { value: "today", label: "Hoje" },
+  { value: "7d", label: "7 dias" },
+  { value: "30d", label: "30 dias" },
+];
+const DATE_FIELD_LABEL: Record<DateField, string> = {
+  emissao: "emissão",
+  arrived: "chegada",
+  synced: "sincronização",
+  imported: "importação",
+};
+// Subtrai dias de um ISO date (yyyy-mm-dd). Determinística (não usa relógio em
+// render — recebe a data-base pronta), então não cai na regra de pureza.
+function subDaysIso(iso: string, n: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
 
 // Status filtráveis = as etapas reais do pipeline. ("Travada"/"Sumida" foram
 // removidos do produto: o backend nunca os produzia.)
@@ -694,6 +718,10 @@ function XmlPageContent() {
   const [offset, setOffset] = useState(() => Number(sp.get("offset")) || 0);
   const [selected, setSelected] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  // Período dos cards (item #5). today via lazy init (não usa relógio em render).
+  const [today] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cardRange, setCardRange] = useState<CardRange>("all");
+  const [cardDateField, setCardDateField] = useState<DateField>("arrived");
   type NotasSortKey = "chave" | "numero" | "tipo" | "empresa" | "emitente" | "status" | "evento";
   const [notasSort, setNotasSort] = useState<{ key: NotasSortKey; dir: "asc" | "desc" } | null>(null);
   const toggleNotasSort = (key: NotasSortKey) =>
@@ -726,19 +754,32 @@ function XmlPageContent() {
     window.history.replaceState(null, "", qs ? `/xml?${qs}` : "/xml");
   }, [view, statusFilter, docFilter, direction, q, numero, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset]);
 
+  // Janela do período selecionado (null = snapshot global). Determinística.
+  const cardWindow =
+    cardRange === "all" ? null
+    : cardRange === "today" ? { from: today, to: today }
+    : cardRange === "7d" ? { from: subDaysIso(today, 6), to: today }
+    : { from: subDaysIso(today, 29), to: today };
+  const flowMode = cardWindow != null;
+  // Janela aplicada às queries de cards (overview + agregado de empresas).
+  const cardWindowParams = cardWindow
+    ? { date_field: cardDateField, from: cardWindow.from, to: cardWindow.to }
+    : {};
+
   const overview = useQuery({
-    queryKey: ["xml", "overview"],
-    queryFn: () => xmlMetricsApi.overview().then((r) => r.data),
+    queryKey: ["xml", "overview", cardRange, cardDateField],
+    queryFn: () => xmlMetricsApi.overview(cardWindowParams).then((r) => r.data),
     refetchInterval: 10_000,
   });
 
   // Quando um filtro de empresa está ativo, busca os agregados de TODAS as
   // empresas (mesmo dataset da aba Empresas, compartilhado por cache) pra
-  // derivar os números daquela empresa e refletir nos cards + chips.
+  // derivar os números daquela empresa e refletir nos cards + chips. A janela
+  // do período é aplicada aqui também pra os cards por empresa baterem.
   const empresaFiltered = codigoEmpresa != null;
   const empresaAggQ = useQuery({
-    queryKey: ["xml", "empresas", "all"],
-    queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data),
+    queryKey: ["xml", "empresas", "all", cardRange, cardDateField],
+    queryFn: () => empresasApi.list({ limit: 0, ...cardWindowParams }).then((r) => r.data),
     refetchInterval: 30_000,
     enabled: empresaFiltered,
   });
@@ -984,13 +1025,12 @@ function XmlPageContent() {
         </div>
       )}
 
-      {/* Cabeçalho de período: os cards de etapa são FOTO DE AGORA (estoque),
-          não um recorte de tempo. A única exceção é "Importadas hoje" (fluxo do
-          dia), por isso ela leva hint próprio. Resolve a dúvida "esses números
-          são de quando?" sem depender de backend novo (Fase 1). */}
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+      {/* Cabeçalho de período (item #5). "Tudo" = foto do estado atual (estoque);
+          os demais aplicam uma janela (modo flow: contagens do recorte por um
+          campo de data). Resolve "de quando são esses números?". */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-          Estado atual do pipeline
+          {flowMode ? "Fluxo no período" : "Estado atual do pipeline"}
           {empresaFilterLabel && <span className="font-normal text-gray-400"> · {empresaFilterLabel}</span>}
           <button
             type="button"
@@ -1002,10 +1042,42 @@ function XmlPageContent() {
             Entenda os estados
           </button>
         </h2>
-        <p className="text-xs text-gray-400">
-          Foto de agora: todas as notas paradas em cada etapa, independente de quando entraram.
-        </p>
+        <div className="flex items-center gap-2">
+          {flowMode && (
+            <select
+              value={cardDateField}
+              onChange={(e) => setCardDateField(e.target.value as DateField)}
+              title="Qual data define o recorte do período"
+              className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs text-gray-600 dark:text-gray-400 focus:border-rps-olive-dark focus:outline-none"
+            >
+              {(["emissao", "arrived", "synced", "imported"] as DateField[]).map((f) => (
+                <option key={f} value={f}>por {DATE_FIELD_LABEL[f]}</option>
+              ))}
+            </select>
+          )}
+          <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 p-0.5">
+            {CARD_RANGES.map((r) => (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setCardRange(r.value)}
+                className={`rounded px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                  cardRange === r.value
+                    ? "bg-white dark:bg-gray-900 text-rps-olive-dark shadow-sm"
+                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+      <p className="text-xs text-gray-400">
+        {flowMode
+          ? `Recorte por ${DATE_FIELD_LABEL[cardDateField]} no período — contagem das notas pelo status atual, restrita ao recorte (não é o estoque). "Importadas hoje" e latências seguem globais.`
+          : "Foto de agora: todas as notas paradas em cada etapa, independente de quando entraram."}
+      </p>
       {glossaryOpen && <StatusGlossary />}
       {/* Cards do pipeline. Quando há filtro de empresa, refletem os números
           daquela empresa. */}
@@ -1825,6 +1897,44 @@ function GargaloBadge({ e }: { e: EmpresaAgg }) {
 // tendência por dia (série temporal). Blocos: distribuição por status (barras
 // clicáveis → filtra Notas), latências p50/p95 atuais, empresas com mais notas
 // pendentes (barras clicáveis → drill-down) e os gráficos de tendência.
+// Cor da barra por faixa de idade do aging — quanto mais velho, mais quente.
+const AGE_BUCKET_FILL: Record<string, string> = {
+  "<1d": "bg-green-500",
+  "1-3d": "bg-lime-500",
+  "3-7d": "bg-amber-400",
+  "7-30d": "bg-orange-500",
+  ">30d": "bg-red-500",
+};
+
+// Lista de barras de uma dimensão do aging (to_sync ou to_import).
+function AgingBars({ title, buckets }: { title: string; buckets: AgingBucket[] }) {
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  const total = buckets.reduce((a, b) => a + b.count, 0);
+  return (
+    <div>
+      <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">
+        {title} · <span title={fmtFull(total)} className="cursor-help">{fmtCompact(total)}</span>
+      </p>
+      <ul className="space-y-1.5">
+        {buckets.map((b) => (
+          <li key={b.label} className="flex items-center gap-3">
+            <span className="w-12 shrink-0 text-xs tabular-nums text-gray-500">{b.label}</span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+              <div
+                className={`h-full rounded-full ${AGE_BUCKET_FILL[b.label] ?? "bg-gray-400"}`}
+                style={{ width: `${(b.count / max) * 100}%` }}
+              />
+            </div>
+            <span title={fmtFull(b.count)} className="w-14 shrink-0 cursor-help text-right text-sm font-medium tabular-nums text-gray-700 dark:text-gray-300">
+              {fmtCompact(b.count)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function PainelView({
   ov,
   loading,
@@ -1844,6 +1954,11 @@ function PainelView({
     queryKey: ["xml", "empresas", "painel"],
     queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data),
     refetchInterval: 30_000,
+  });
+  const aging = useQuery({
+    queryKey: ["xml", "aging", "painel"],
+    queryFn: () => xmlMetricsApi.aging().then((r) => r.data),
+    refetchInterval: 60_000,
   });
 
   // "imported" fica FORA das barras: é ordens de grandeza maior (milhões de
@@ -1948,6 +2063,28 @@ function PainelView({
               Percentis das transições dos últimos 30 dias; exclui backfill histórico.
             </p>
           </div>
+        )}
+      </PainelCard>
+
+      <PainelCard title="Idade do backlog (aging)" className="lg:col-span-2">
+        {aging.isError ? (
+          <ErrorState onRetry={() => aging.refetch()} />
+        ) : aging.isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : !aging.data || (aging.data.to_sync.length === 0 && aging.data.to_import.length === 0) ? (
+          <EmptyState className="py-4">Sem backlog pendente. 🎉</EmptyState>
+        ) : (
+          <>
+            <div className="grid gap-6 sm:grid-cols-2">
+              <AgingBars title="Aguardando sincronização" buckets={aging.data.to_sync} />
+              <AgingBars title="Aguardando importação" buckets={aging.data.to_import} />
+            </div>
+            <p className="mt-3 text-xs text-gray-400">
+              Há quanto tempo as notas pendentes estão paradas (sincronização contada da
+              chegada; importação contada da sincronização). Quanto mais quente a barra,
+              mais velho o backlog.
+            </p>
+          </>
         )}
       </PainelCard>
 
