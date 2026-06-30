@@ -2706,7 +2706,7 @@ function BigLatency({ label, p50, p95 }: { label: string; p50?: number; p95?: nu
 function SlideResumo({ ov }: { ov?: Overview }) {
   const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import : 0;
   return (
-    <div className="flex h-full flex-col gap-5">
+    <div className="flex h-full flex-col justify-center gap-5">
       <div className="grid grid-cols-5 gap-4">
         <BigStat label="A Sincronizar" value={ov?.arrived} accent="text-yellow-400" />
         <BigStat label="Sincronizadas" value={ov?.synced} accent="text-sky-400" />
@@ -2714,7 +2714,7 @@ function SlideResumo({ ov }: { ov?: Overview }) {
         <BigStat label="Importadas hoje" value={ov?.imported_today} accent="text-rps-sage" />
         <BigStat label="Ignoradas" value={ov?.import_ignored} />
       </div>
-      <div className="grid flex-1 grid-cols-3 gap-4">
+      <div className="grid min-h-[280px] grid-cols-3 gap-4">
         <div className="flex flex-col justify-center rounded-xl border border-gray-800 bg-gray-900 p-6">
           <p className="text-sm uppercase tracking-wider text-gray-400">Backlog pendente</p>
           <p className="mt-2 text-7xl font-bold tabular-nums text-gray-100" title={fmtFull(pendentes)}>{fmtCompact(pendentes)}</p>
@@ -2734,14 +2734,14 @@ function SlideStatus({ ov }: { ov?: Overview }) {
   const counts = ov ? bars.map((s) => ({ status: s, count: statusCount(ov, s) })) : [];
   const max = Math.max(1, ...counts.map((c) => c.count));
   return (
-    <div className="flex h-full flex-col justify-center gap-5">
+    <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col justify-center gap-5">
       {counts.map((c) => (
-        <div key={c.status} className="flex items-center gap-5">
-          <span className="w-64 shrink-0 text-2xl font-medium text-gray-200">{XML_STATUS_LABEL[c.status]}</span>
+        <div key={c.status} className="flex items-center gap-6">
+          <span className="w-72 shrink-0 text-2xl font-medium text-gray-200">{XML_STATUS_LABEL[c.status]}</span>
           <div className="h-7 flex-1 overflow-hidden rounded-full bg-gray-800">
             <div className={`h-full rounded-full ${STATUS_BAR_FILL[c.status]}`} style={{ width: `${(c.count / max) * 100}%` }} />
           </div>
-          <span className="w-32 shrink-0 text-right text-4xl font-bold tabular-nums text-gray-100" title={fmtFull(c.count)}>
+          <span className="w-56 shrink-0 whitespace-nowrap text-right text-4xl font-bold tabular-nums text-gray-100" title={fmtFull(c.count)}>
             {fmtCompact(c.count)}
           </span>
         </div>
@@ -2765,7 +2765,7 @@ function BigAgingCol({ title, buckets }: { title: string; buckets: AgingBucket[]
             <div className="h-5 flex-1 overflow-hidden rounded-full bg-gray-800">
               <div className={`h-full rounded-full ${AGE_BUCKET_FILL[b.label] ?? "bg-gray-500"}`} style={{ width: `${(b.count / max) * 100}%` }} />
             </div>
-            <span className="w-24 shrink-0 text-right text-3xl font-bold tabular-nums text-gray-100" title={fmtFull(b.count)}>
+            <span className="w-32 shrink-0 whitespace-nowrap text-right text-3xl font-bold tabular-nums text-gray-100" title={fmtFull(b.count)}>
               {fmtCompact(b.count)}
             </span>
           </li>
@@ -2780,14 +2780,24 @@ function SlideAging({ data }: { data?: Aging }) {
     return <div className="flex h-full items-center justify-center text-3xl text-gray-500">Sem backlog pendente. 🎉</div>;
   }
   return (
-    <div className="grid h-full grid-cols-2 gap-12 px-4 pt-4">
+    <div className="grid h-full grid-cols-2 items-center gap-12 px-4">
       <BigAgingCol title="Aguardando sincronização" buckets={data.to_sync} />
       <BigAgingCol title="Aguardando importação" buckets={data.to_import} />
     </div>
   );
 }
 
-function SlideEmpresasTrend({ empresas, ts }: { empresas?: { items: EmpresaAgg[] }; ts?: Timeseries }) {
+function SlideEmpresasTrend({
+  empresas,
+  ts,
+  tsLoading,
+  tsError,
+}: {
+  empresas?: { items: EmpresaAgg[] };
+  ts?: Timeseries;
+  tsLoading: boolean;
+  tsError: boolean;
+}) {
   const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import;
   const top = [...(empresas?.items ?? [])]
     .filter((e) => e.codigo_empresa != null && pend(e) > 0)
@@ -2800,37 +2810,43 @@ function SlideEmpresasTrend({ empresas, ts }: { empresas?: { items: EmpresaAgg[]
     values: buckets.map((b) => b[m.key]),
   }));
   return (
-    <div className="grid h-full grid-cols-2 gap-10">
-      <div>
-        <p className="mb-4 text-xl font-medium text-gray-300">Empresas com mais pendentes</p>
-        <ul className="space-y-3">
-          {top.length === 0 ? (
-            <li className="text-2xl text-gray-500">Nenhuma empresa pendente. 🎉</li>
-          ) : top.map((e) => (
-            <li key={`${e.codigo_empresa}-${e.codigo_filial ?? "x"}`} className="flex items-center gap-4">
-              <span className="w-64 shrink-0 truncate text-lg text-gray-200" title={e.nome_empresa}>
-                {e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`}
-              </span>
-              <div className="h-4 flex-1 overflow-hidden rounded-full bg-gray-800">
-                <div className="h-full rounded-full bg-rps-sage" style={{ width: `${(pend(e) / maxPend) * 100}%` }} />
-              </div>
-              <span className="w-20 shrink-0 text-right text-2xl font-bold tabular-nums text-gray-100" title={fmtFull(pend(e))}>
-                {fmtCompact(pend(e))}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div className="flex flex-col">
-        <p className="mb-4 text-xl font-medium text-gray-300">Volume por dia (30d)</p>
-        {chartHasData(series) ? (
-          <>
-            <LineChart series={series} xLabels={buckets.map((b) => ddmm(b.date))} height={260} formatY={(n) => fmtCompact(Math.round(n))} formatTip={(n) => fmtFull(Math.round(n))} />
-            <ChartLegend series={series} />
-          </>
-        ) : (
-          <div className="flex flex-1 items-center justify-center text-2xl text-gray-500">Sem série no período.</div>
-        )}
+    <div className="flex h-full items-center">
+      <div className="grid w-full grid-cols-2 gap-10">
+        <div>
+          <p className="mb-4 text-xl font-medium text-gray-300">Empresas com mais pendentes</p>
+          <ul className="space-y-3">
+            {top.length === 0 ? (
+              <li className="text-2xl text-gray-500">Nenhuma empresa pendente. 🎉</li>
+            ) : top.map((e) => (
+              <li key={`${e.codigo_empresa}-${e.codigo_filial ?? "x"}`} className="flex items-center gap-4">
+                <span className="w-64 shrink-0 truncate text-lg text-gray-200" title={e.nome_empresa}>
+                  {e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`}
+                </span>
+                <div className="h-4 flex-1 overflow-hidden rounded-full bg-gray-800">
+                  <div className="h-full rounded-full bg-rps-sage" style={{ width: `${(pend(e) / maxPend) * 100}%` }} />
+                </div>
+                <span className="w-24 shrink-0 whitespace-nowrap text-right text-2xl font-bold tabular-nums text-gray-100" title={fmtFull(pend(e))}>
+                  {fmtCompact(pend(e))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="flex flex-col">
+          <p className="mb-4 text-xl font-medium text-gray-300">Volume por dia (30d)</p>
+          {tsError ? (
+            <div className="flex h-64 items-center justify-center text-xl text-gray-500">Tendência indisponível no tracker.</div>
+          ) : tsLoading && buckets.length === 0 ? (
+            <div className="flex h-64 items-center justify-center text-xl text-gray-500">Carregando série…</div>
+          ) : chartHasData(series) ? (
+            <>
+              <LineChart series={series} xLabels={buckets.map((b) => ddmm(b.date))} height={260} formatY={(n) => fmtCompact(Math.round(n))} formatTip={(n) => fmtFull(Math.round(n))} />
+              <ChartLegend series={series} />
+            </>
+          ) : (
+            <div className="flex h-64 items-center justify-center text-xl text-gray-500">Sem série no período.</div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2906,7 +2922,7 @@ function PresentationMode({ onClose }: { onClose: () => void }) {
         ) : slide === 2 ? (
           <SlideAging data={aging.data} />
         ) : (
-          <SlideEmpresasTrend empresas={empresas.data} ts={ts.data} />
+          <SlideEmpresasTrend empresas={empresas.data} ts={ts.data} tsLoading={ts.isLoading} tsError={ts.isError} />
         )}
       </main>
 
