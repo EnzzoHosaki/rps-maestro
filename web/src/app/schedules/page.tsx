@@ -9,13 +9,98 @@ import { Modal } from "@/components/ui/modal";
 import { useConfirm } from "@/components/ui/confirm";
 import { DynamicParameterForm } from "@/components/dynamic-parameter-form";
 import { CronBuilder } from "@/components/cron-builder";
-import { describeCron } from "@/lib/cron";
+import { describeCron, cronFiresOnDate } from "@/lib/cron";
 import { useAuth } from "@/lib/auth";
 import { SkeletonRow } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
 import { Table, THead, Th, TBody, Tr, Td } from "@/components/ui/table";
 import { EmptyRow } from "@/components/ui/empty-state";
 import { ErrorRow } from "@/components/ui/error-state";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+// Calendário mensal dos agendamentos ATIVOS — marca os dias em que cada cron
+// dispara (granularidade de dia, via cronFiresOnDate). Tipo uma agenda.
+function ScheduleCalendar({
+  schedules,
+  getAutoName,
+}: {
+  schedules: Schedule[];
+  getAutoName: (id: number) => string;
+}) {
+  const [today] = useState(() => new Date());
+  const [cursor, setCursor] = useState(() => ({ y: today.getFullYear(), m: today.getMonth() }));
+  const shift = (delta: number) =>
+    setCursor((c) => {
+      const total = c.y * 12 + c.m + delta;
+      return { y: Math.floor(total / 12), m: ((total % 12) + 12) % 12 };
+    });
+
+  const active = schedules.filter((s) => s.isEnabled);
+  const firstWeekday = new Date(cursor.y, cursor.m, 1).getDay();
+  const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate();
+  const monthLabel = new Date(cursor.y, cursor.m, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-3">
+        <button type="button" onClick={() => shift(-1)} aria-label="Mês anterior" className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <ChevronLeft className="h-5 w-5" aria-hidden />
+        </button>
+        <span className="min-w-[180px] text-center text-lg font-semibold capitalize text-gray-800 dark:text-gray-200">{monthLabel}</span>
+        <button type="button" onClick={() => shift(1)} aria-label="Próximo mês" className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <ChevronRight className="h-5 w-5" aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={() => setCursor({ y: today.getFullYear(), m: today.getMonth() })}
+          className="rounded-full border border-gray-300 dark:border-gray-700 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark"
+        >
+          Hoje
+        </button>
+        <span className="ml-auto text-xs text-gray-400">Somente agendamentos ativos · por dia</span>
+      </div>
+      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800">
+        {WEEKDAY_LABELS.map((w) => (
+          <div key={w} className="bg-gray-50 dark:bg-gray-900 py-1.5 text-center text-xs font-medium uppercase tracking-wider text-gray-500">{w}</div>
+        ))}
+        {cells.map((d, i) => {
+          if (d === null) return <div key={i} className="min-h-[104px] bg-gray-50/50 dark:bg-gray-950/30" />;
+          const date = new Date(cursor.y, cursor.m, d);
+          const fires = active.filter((s) => cronFiresOnDate(s.cronExpression, date));
+          const isToday = d === today.getDate() && cursor.m === today.getMonth() && cursor.y === today.getFullYear();
+          return (
+            <div key={i} className="min-h-[104px] bg-white dark:bg-gray-900 p-1.5">
+              <div className={`mb-1 text-xs font-medium ${isToday ? "flex h-5 w-5 items-center justify-center rounded-full bg-rps-olive-dark text-white" : "text-gray-500"}`}>
+                {d}
+              </div>
+              <div className="space-y-0.5">
+                {fires.slice(0, 3).map((s) => (
+                  <div
+                    key={s.id}
+                    title={`${getAutoName(s.automationId)} — ${describeCron(s.cronExpression)}`}
+                    className="truncate rounded bg-rps-sage-soft px-1.5 py-0.5 text-[11px] text-rps-olive-dark"
+                  >
+                    {getAutoName(s.automationId)}
+                  </div>
+                ))}
+                {fires.length > 3 && (
+                  <div className="px-1.5 text-[11px] text-gray-400">+{fires.length - 3}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 type FormData = {
   automationId: number;
@@ -189,6 +274,7 @@ export default function SchedulesPage() {
   // abre vazio; "Duplicar" abre pré-preenchido com os dados de um agendamento.
   const [createSeed, setCreateSeed] = useState<FormData | null>(null);
   const [editing, setEditing] = useState<Schedule | null>(null);
+  const [view, setView] = useState<"list" | "calendar">("list");
 
   const emptyForm: FormData = { automationId: 0, cronExpression: "", isEnabled: true, parameters: {} };
 
@@ -249,12 +335,29 @@ export default function SchedulesPage() {
 
   return (
     <div className="space-y-4">
-      {isAdmin && (
-        <div className="flex justify-end">
-          <Button onClick={() => setCreateSeed(emptyForm)}>+ Novo agendamento</Button>
+      <div className="flex items-center justify-between">
+        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 p-0.5">
+          {(["list", "calendar"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                view === v
+                  ? "bg-white dark:bg-gray-900 text-rps-olive-dark shadow-sm"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+              }`}
+            >
+              {v === "list" ? "Lista" : "Calendário"}
+            </button>
+          ))}
         </div>
-      )}
+        {isAdmin && <Button onClick={() => setCreateSeed(emptyForm)}>+ Novo agendamento</Button>}
+      </div>
 
+      {view === "calendar" && <ScheduleCalendar schedules={schedules ?? []} getAutoName={getAutoName} />}
+
+      {view === "list" && (
       <Table>
         <THead>
           <Th>Automação</Th>
@@ -351,6 +454,7 @@ export default function SchedulesPage() {
           )}
         </TBody>
       </Table>
+      )}
 
       {createSeed && (
         <Modal title="Novo agendamento" onClose={() => setCreateSeed(null)} wide>

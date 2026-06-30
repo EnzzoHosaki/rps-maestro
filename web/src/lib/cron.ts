@@ -163,6 +163,67 @@ export function buildCron(model: CronModel): string {
   }
 }
 
+// ── Ocorrência por dia (pro calendário de agendamentos) ──────────────────────
+// Casa UM campo de cron contra um valor, em nível de dia. Suporta "*", listas
+// (a,b), ranges (a-b), passos (*/n, a-b/n, a/n) e o token "L" (último dia, só
+// faz sentido no dia-do-mês). Ignora minuto/hora — pro calendário só importa SE
+// dispara naquele dia.
+function fieldMatches(field: string, value: number, min: number, max: number, isLast = false): boolean {
+  for (const part of field.split(",")) {
+    if (part === "*") return true;
+    if (part === "L" || part === "l") {
+      if (isLast) return true;
+      continue;
+    }
+    const [range, stepStr] = part.split("/");
+    const step = stepStr ? parseInt(stepStr, 10) : 1;
+    if (!step || step < 1) continue;
+    let lo: number, hi: number;
+    if (range === "*") {
+      lo = min; hi = max;
+    } else if (range.includes("-")) {
+      const [a, b] = range.split("-").map((x) => parseInt(x, 10));
+      lo = a; hi = b;
+    } else {
+      const a = parseInt(range, 10);
+      if (Number.isNaN(a)) continue;
+      lo = a;
+      hi = stepStr ? max : a; // "a/n" = de a até o fim, de n em n
+    }
+    if (Number.isNaN(lo) || Number.isNaN(hi)) continue;
+    if (value < lo || value > hi) continue;
+    if ((value - lo) % step === 0) return true;
+  }
+  return false;
+}
+
+// Diz se uma expressão cron de 5 campos dispara em algum momento da data dada
+// (granularidade de dia). Aplica a regra clássica do cron: se dia-do-mês E
+// dia-da-semana estão ambos restritos, dispara se QUALQUER um casar (OR).
+export function cronFiresOnDate(expr: string, date: Date): boolean {
+  if (!expr || !expr.trim()) return false;
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const [, , dom, month, dow] = parts;
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const wd = date.getDay(); // 0 = domingo
+  const lastDay = d === new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+
+  if (!fieldMatches(month, m, 1, 12)) return false;
+
+  const domStar = dom.trim() === "*";
+  const dowStar = dow.trim() === "*";
+  const domOk = fieldMatches(dom, d, 1, 31, lastDay);
+  // dow aceita 7 como domingo → testa 0 e 7.
+  const dowOk = fieldMatches(dow, wd, 0, 7) || (wd === 0 && fieldMatches(dow, 7, 0, 7));
+
+  if (domStar && dowStar) return true;
+  if (!domStar && dowStar) return domOk;
+  if (domStar && !dowStar) return dowOk;
+  return domOk || dowOk;
+}
+
 export function describeCron(expr: string): string {
   if (!expr || !expr.trim()) return "";
   try {
