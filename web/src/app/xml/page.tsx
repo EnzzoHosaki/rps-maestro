@@ -2490,7 +2490,10 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
                   onClick={() => onDrill(f, { dateField, from, to, docFilter, direction })}
                 >
                   <Td className="max-w-[300px] text-gray-600 dark:text-gray-400">
-                    <span className="flex items-center gap-2 pl-6">
+                    {/* Indenta + rail à esquerda: as filiais consecutivas formam
+                        uma linha vertical contínua, deixando claro que pertencem
+                        à empresa-mãe acima. */}
+                    <span className="ml-3 flex items-center gap-2 border-l-2 border-gray-200 pl-4 dark:border-gray-700">
                       <HealthDot e={f} />
                       <span className="truncate">Filial #{f.codigo_filial ?? 1}</span>
                     </span>
