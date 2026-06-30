@@ -31,6 +31,8 @@ function ScheduleCalendar({
 }) {
   const [today] = useState(() => new Date());
   const [cursor, setCursor] = useState(() => ({ y: today.getFullYear(), m: today.getMonth() }));
+  // Dia selecionado → modal com TODOS os agendamentos daquele dia (não só os 3).
+  const [dayModal, setDayModal] = useState<{ date: Date; fires: Schedule[] } | null>(null);
   const shift = (delta: number) =>
     setCursor((c) => {
       const total = c.y * 12 + c.m + delta;
@@ -75,8 +77,13 @@ function ScheduleCalendar({
           const date = new Date(cursor.y, cursor.m, d);
           const fires = active.filter((s) => cronFiresOnDate(s.cronExpression, date));
           const isToday = d === today.getDate() && cursor.m === today.getMonth() && cursor.y === today.getFullYear();
+          const clickable = fires.length > 0;
           return (
-            <div key={i} className="min-h-[104px] bg-white dark:bg-gray-900 p-1.5">
+            <div
+              key={i}
+              onClick={clickable ? () => setDayModal({ date, fires }) : undefined}
+              className={`min-h-[104px] bg-white dark:bg-gray-900 p-1.5 ${clickable ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50" : ""}`}
+            >
               <div className={`mb-1 text-xs font-medium ${isToday ? "flex h-5 w-5 items-center justify-center rounded-full bg-rps-olive-dark text-white" : "text-gray-500"}`}>
                 {d}
               </div>
@@ -91,13 +98,35 @@ function ScheduleCalendar({
                   </div>
                 ))}
                 {fires.length > 3 && (
-                  <div className="px-1.5 text-[11px] text-gray-400">+{fires.length - 3}</div>
+                  <div className="px-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    +{fires.length - 3} — ver todos
+                  </div>
                 )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {dayModal && (
+        <Modal
+          title={`Agendamentos · ${dayModal.date.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}`}
+          onClose={() => setDayModal(null)}
+        >
+          <p className="mb-3 text-xs text-gray-500">
+            {dayModal.fires.length} agendamento{dayModal.fires.length === 1 ? "" : "s"} ativo{dayModal.fires.length === 1 ? "" : "s"} neste dia.
+          </p>
+          <ul className="space-y-2">
+            {dayModal.fires.map((s) => (
+              <li key={s.id} className="rounded border border-gray-200 dark:border-gray-800 p-2.5">
+                <p className="font-medium text-gray-900 dark:text-gray-100">{getAutoName(s.automationId)}</p>
+                <p className="text-xs text-gray-500">{describeCron(s.cronExpression)}</p>
+                <p className="mt-0.5 font-mono text-[11px] text-gray-400">{s.cronExpression}</p>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
     </div>
   );
 }
