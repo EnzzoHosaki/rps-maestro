@@ -30,6 +30,11 @@ xmlApi.interceptors.response.use(
 
 export type DocType = "NFE" | "NFCE" | "CTE" | "NFS" | "EVENTO" | "UNKNOWN";
 
+// Direção da nota relativa à empresa monitorada: saída = empresa é emitente;
+// entrada = empresa é destinatária. Omitido quando indeterminada (sem empresa
+// ou CNPJ que não casa). Intra-grupo (emitente E destinatária) → "saida".
+export type Direction = "entrada" | "saida";
+
 export type NotaStatus =
   | "arrived"
   | "synced"
@@ -44,6 +49,7 @@ export interface Nota {
   // false = importado manualmente. Undefined/ausente = status não é "imported".
   via_robo?: boolean;
   doc_type: DocType;
+  direction?: Direction; // omitido quando indeterminada
   status: NotaStatus;
   codigo_empresa?: number;
   codigo_filial?: number;
@@ -147,7 +153,9 @@ export interface NotaListFilter {
   sem_empresa?: boolean; // notas com codigo_empresa IS NULL
   empresa?: string; // busca por nome
   cnpj?: string; // emitente ou destinatário
-  q?: string; // chave
+  q?: string; // chave de acesso
+  numero?: string; // número da nota (nNF), match por prefixo — separado de `q`
+  direction?: Direction; // entrada/saída relativa à empresa
   date_field?: DateField;
   from?: string; // yyyy-mm-dd
   to?: string;
@@ -175,6 +183,8 @@ export const empresasApi = {
   // (e exclui a linha "Sem empresa"), então não passamos isso na visão geral.
   // date_field+from/to: recomputa os agregados ao vivo só pras notas cujo evento
   // (emissao/arrived/synced/imported) caiu na janela (mesma semântica do /notas).
+  // doc_type/direction forçam o recompute ao vivo no tracker (o contador de
+  // empresas não tem essas dimensões) — mesmo caminho do filtro de data.
   list: (
     opts: {
       pendentes?: boolean;
@@ -183,12 +193,16 @@ export const empresasApi = {
       date_field?: DateField;
       from?: string;
       to?: string;
+      doc_type?: DocType;
+      direction?: Direction;
     } = {},
   ) => {
     const params: Record<string, string | number> = {};
     if (opts.pendentes) params.pendentes = "true";
     if (opts.limit != null) params.limit = opts.limit;
     if (opts.q) params.q = opts.q; // busca parcial por nome, case-insensitive (backend)
+    if (opts.doc_type) params.doc_type = opts.doc_type;
+    if (opts.direction) params.direction = opts.direction;
     if (opts.from || opts.to) {
       if (opts.date_field) params.date_field = opts.date_field;
       if (opts.from) params.from = opts.from;
