@@ -4,7 +4,7 @@ import { Fragment, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info, Download } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info, Download, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -18,6 +18,7 @@ import {
   type NotaListFilter,
   type NotaStatus,
   type DocType,
+  type Direction,
   type DateField,
   type EmpresaAgg,
   type Overview,
@@ -35,10 +36,14 @@ import { ErrorRow, ErrorState } from "@/components/ui/error-state";
 const PAGE_SIZE = 50;
 
 // Filtros carregados no drill-down Empresas → Notas (mantém a consistência
-// entre as abas). Por enquanto só a janela de data; tipo de documento e
-// direção (entrada/saída) entram quando o tracker expor esses filtros em
-// /empresas.
-type DrillFilters = { dateField: DateField; from: string; to: string };
+// entre as abas): janela de data + tipo de documento + direção.
+type DrillFilters = {
+  dateField: DateField;
+  from: string;
+  to: string;
+  docFilter: DocType | "all";
+  direction: Direction | "all";
+};
 
 // Status filtráveis = as etapas reais do pipeline. ("Travada"/"Sumida" foram
 // removidos do produto: o backend nunca os produzia.)
@@ -240,6 +245,25 @@ function ViaRoboBadge({ via_robo }: { via_robo?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">
       <Bot className="h-3 w-3" aria-hidden /> Robô
+    </span>
+  );
+}
+
+// Badge de direção (entrada/saída relativa à empresa). Omitido quando o tracker
+// não determinou a direção (sem empresa / CNPJ sem match).
+function DirectionBadge({ direction }: { direction?: Direction }) {
+  if (!direction) return null;
+  const entrada = direction === "entrada";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium ${
+        entrada
+          ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+          : "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+      }`}
+    >
+      {entrada ? <ArrowDownLeft className="h-3 w-3" aria-hidden /> : <ArrowUpRight className="h-3 w-3" aria-hidden />}
+      {entrada ? "Entrada" : "Saída"}
     </span>
   );
 }
@@ -486,7 +510,9 @@ const PRESETS_KEY = "xml:notas:presets";
 type NotasPresetFilters = {
   statusFilter: NotaStatus | "all";
   docFilter: DocType | "all";
+  direction: Direction | "all";
   q: string;
+  numero: string;
   empresa: string;
   cnpj: string;
   dateField: DateField;
@@ -661,6 +687,10 @@ function XmlPageContent() {
   );
   const [from, setFrom] = useState(() => sp.get("from") ?? "");
   const [to, setTo] = useState(() => sp.get("to") ?? "");
+  const [numero, setNumero] = useState(() => sp.get("numero") ?? "");
+  const [direction, setDirection] = useState<Direction | "all">(
+    () => (sp.get("direction") as Direction) || "all"
+  );
   const [offset, setOffset] = useState(() => Number(sp.get("offset")) || 0);
   const [selected, setSelected] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -678,7 +708,9 @@ function XmlPageContent() {
     if (view === "empresas" || view === "painel") p.set("view", view);
     if (statusFilter !== "all") p.set("status", statusFilter);
     if (docFilter !== "all") p.set("doc_type", docFilter);
+    if (direction !== "all") p.set("direction", direction);
     if (q) p.set("q", q);
+    if (numero) p.set("numero", numero);
     if (empresa) p.set("empresa", empresa);
     if (cnpj) p.set("cnpj", cnpj);
     if (semEmpresa) p.set("sem_empresa", "true");
@@ -692,7 +724,7 @@ function XmlPageContent() {
     if (offset) p.set("offset", String(offset));
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `/xml?${qs}` : "/xml");
-  }, [view, statusFilter, docFilter, q, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset]);
+  }, [view, statusFilter, docFilter, direction, q, numero, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset]);
 
   const overview = useQuery({
     queryKey: ["xml", "overview"],
@@ -716,7 +748,9 @@ function XmlPageContent() {
   const notaFilters: NotaListFilter = {
     status: statusFilter === "all" ? undefined : statusFilter,
     doc_type: docFilter === "all" ? undefined : docFilter,
+    direction: direction === "all" ? undefined : direction,
     q: q || undefined,
+    numero: numero || undefined,
     empresa: empresa || undefined,
     cnpj: cnpj || undefined,
     sem_empresa: semEmpresa || undefined,
@@ -728,7 +762,7 @@ function XmlPageContent() {
   };
 
   const list = useQuery({
-    queryKey: ["xml", "notas", { statusFilter, docFilter, q, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset }],
+    queryKey: ["xml", "notas", { statusFilter, docFilter, direction, q, numero, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to, offset }],
     queryFn: () =>
       notasApi.list({ ...notaFilters, limit: PAGE_SIZE, offset }).then((r) => r.data),
     refetchInterval: 15_000,
@@ -838,7 +872,9 @@ function XmlPageContent() {
   const hasFilters =
     statusFilter !== "all" ||
     docFilter !== "all" ||
+    direction !== "all" ||
     q !== "" ||
+    numero !== "" ||
     empresa !== "" ||
     cnpj !== "" ||
     from !== "" ||
@@ -850,7 +886,9 @@ function XmlPageContent() {
   function clearAllFilters() {
     setStatusFilter("all");
     setDocFilter("all");
+    setDirection("all");
     setQ("");
+    setNumero("");
     setEmpresa("");
     setCnpj("");
     setFrom("");
@@ -862,12 +900,14 @@ function XmlPageContent() {
   }
 
   // Snapshot dos filtros explícitos pra salvar como consulta (preset).
-  const currentPreset: NotasPresetFilters = { statusFilter, docFilter, q, empresa, cnpj, dateField, from, to };
+  const currentPreset: NotasPresetFilters = { statusFilter, docFilter, direction, q, numero, empresa, cnpj, dateField, from, to };
   // Aplica uma consulta salva: seta os filtros e zera a navegação por drill.
   function applyPreset(p: NotasPresetFilters) {
     setStatusFilter(p.statusFilter);
     setDocFilter(p.docFilter);
+    setDirection(p.direction ?? "all");
     setQ(p.q);
+    setNumero(p.numero ?? "");
     setEmpresa(p.empresa);
     setCnpj(p.cnpj);
     setDateField(p.dateField);
@@ -888,6 +928,8 @@ function XmlPageContent() {
       setDateField(filters.dateField);
       setFrom(filters.from);
       setTo(filters.to);
+      setDocFilter(filters.docFilter);
+      setDirection(filters.direction);
     }
     if (row.codigo_empresa == null) {
       setSemEmpresa(true);
@@ -1103,11 +1145,29 @@ function XmlPageContent() {
             <option key={d} value={d}>{d === "all" ? "Todos os tipos" : XML_DOC_TYPE_LABEL[d]}</option>
           ))}
         </select>
+        <select
+          value={direction}
+          onChange={(e) => reset(setDirection)(e.target.value as Direction | "all")}
+          title="Direção da nota relativa à empresa (entrada = recebida; saída = emitida)"
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+        >
+          <option value="all">Entrada e saída</option>
+          <option value="entrada">Entrada</option>
+          <option value="saida">Saída</option>
+        </select>
+        <input
+          value={numero}
+          onChange={(e) => reset(setNumero)(e.target.value.replace(/\D/g, ""))}
+          inputMode="numeric"
+          placeholder="Nº da nota…"
+          title="Busca por prefixo do número da nota (nNF)"
+          className="w-28 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+        />
         <input
           value={q}
           onChange={(e) => reset(setQ)(e.target.value.trim())}
           placeholder="Buscar por chave de acesso…"
-          className="min-w-[280px] flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
+          className="min-w-[220px] flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
         <div className="flex items-center gap-3 ml-auto">
           <span className="text-sm text-gray-500">
@@ -1260,6 +1320,7 @@ function XmlPageContent() {
               <Td>
                 <span className="inline-flex flex-wrap items-center gap-1">
                   <Badge className={XML_STATUS_STYLE[n.status]}>{XML_STATUS_LABEL[n.status]}</Badge>
+                  <DirectionBadge direction={n.direction} />
                   <ViaRoboBadge via_robo={n.via_robo} />
                 </span>
               </Td>
@@ -1981,10 +2042,13 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
   const [dateField, setDateField] = useState<DateField>("imported");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  // Tipo de documento e direção — forçam o recompute ao vivo no tracker.
+  const [docFilter, setDocFilter] = useState<DocType | "all">("all");
+  const [direction, setDirection] = useState<Direction | "all">("all");
   const q = useQuery({
-    // Busca por nome via API (?q=, parcial/case-insensitive) + filtro de data.
-    // Mantém limit:0 (todas as linhas) + sort/paginação client-side de sempre.
-    queryKey: ["xml", "empresas", debounced, dateField, from, to],
+    // Busca por nome via API (?q=, parcial/case-insensitive) + filtros (data,
+    // tipo, direção). Mantém limit:0 (todas as linhas) + sort/paginação client.
+    queryKey: ["xml", "empresas", debounced, dateField, from, to, docFilter, direction],
     queryFn: () =>
       empresasApi
         .list({
@@ -1993,6 +2057,8 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
           date_field: from || to ? dateField : undefined,
           from: from || undefined,
           to: to || undefined,
+          doc_type: docFilter === "all" ? undefined : docFilter,
+          direction: direction === "all" ? undefined : direction,
         })
         .then((r) => r.data),
     refetchInterval: 30_000,
@@ -2117,6 +2183,25 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
           placeholder="Buscar empresa por nome…"
           className="w-72 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
+        <select
+          value={docFilter}
+          onChange={(e) => setDocFilter(e.target.value as DocType | "all")}
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+        >
+          {DOC_TYPES.map((d) => (
+            <option key={d} value={d}>{d === "all" ? "Todos os tipos" : XML_DOC_TYPE_LABEL[d]}</option>
+          ))}
+        </select>
+        <select
+          value={direction}
+          onChange={(e) => setDirection(e.target.value as Direction | "all")}
+          title="Direção da nota relativa à empresa (entrada = recebida; saída = emitida)"
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+        >
+          <option value="all">Entrada e saída</option>
+          <option value="entrada">Entrada</option>
+          <option value="saida">Saída</option>
+        </select>
         <div className="flex items-center gap-1.5 text-sm text-gray-500">
           <select
             value={dateField}
@@ -2228,7 +2313,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
               <Tr
                 className="group cursor-pointer"
                 title="Ver notas desta empresa"
-                onClick={() => onDrill(parent, { dateField, from, to })}
+                onClick={() => onDrill(parent, { dateField, from, to, docFilter, direction })}
               >
                 <Td className="max-w-[300px] text-gray-700 dark:text-gray-300" title={g.isNoEmpresa ? undefined : g.nome}>
                   <span className="flex items-center gap-2">
@@ -2265,7 +2350,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
                   key={`${g.key}-${f.codigo_filial ?? "x"}`}
                   className="group cursor-pointer bg-gray-50/60 dark:bg-gray-900/40"
                   title="Ver notas desta filial"
-                  onClick={() => onDrill(f, { dateField, from, to })}
+                  onClick={() => onDrill(f, { dateField, from, to, docFilter, direction })}
                 >
                   <Td className="max-w-[300px] text-gray-600 dark:text-gray-400">
                     <span className="flex items-center gap-2 pl-6">
@@ -2351,6 +2436,7 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
                 <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${XML_STATUS_STYLE[data.status]}`}>
                   {XML_STATUS_LABEL[data.status]}
                 </span>
+                <DirectionBadge direction={data.direction} />
                 <ViaRoboBadge via_robo={data.via_robo} />
               </span>
             </Field>
