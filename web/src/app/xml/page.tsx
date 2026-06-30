@@ -720,8 +720,11 @@ function XmlPageContent() {
   const [offset, setOffset] = useState(() => Number(sp.get("offset")) || 0);
   const [selected, setSelected] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
-  // Modo Apresentação (TV). Abre via botão (com fullscreen) ou ?present=1.
-  const [presenting, setPresenting] = useState(() => sp.get("present") === "1");
+  // Modo Apresentação (TV). Abre via botão (com fullscreen) ou ?present=1
+  // (slides) / ?present=mural (tela única).
+  const presentParam = sp.get("present");
+  const [presenting, setPresenting] = useState(() => presentParam === "1" || presentParam === "slides" || presentParam === "mural");
+  const presentInitialMode: "slides" | "mural" = presentParam === "mural" ? "mural" : "slides";
   function startPresentation() {
     setPresenting(true);
     document.documentElement.requestFullscreen?.().catch(() => {});
@@ -1464,7 +1467,7 @@ function XmlPageContent() {
       )}
 
       {selected && <NotaDetailModal chave={selected} onClose={() => setSelected(null)} />}
-      {presenting && <PresentationMode onClose={stopPresentation} />}
+      {presenting && <PresentationMode initialMode={presentInitialMode} onClose={stopPresentation} />}
     </div>
   );
 }
@@ -2852,20 +2855,136 @@ function SlideEmpresasTrend({
   );
 }
 
-function PresentationMode({ onClose }: { onClose: () => void }) {
+// ── Modo Mural (tela única) ───────────────────────────────────────────────────
+// Tudo numa tela só, pra TVs grandes. Versão compacta dos slides em 2×2 painéis
+// + faixa de cards. Reusa AgingBars (pequeno) e os helpers/cores.
+function MuralStat({ label, value, accent }: { label: string; value?: number; accent?: string }) {
+  return (
+    <div className="rounded-lg border border-gray-800 bg-gray-900 px-4 py-3">
+      <p className="text-xs uppercase tracking-wider text-gray-500">{label}</p>
+      <p className={`mt-1 text-3xl font-bold tabular-nums ${accent ?? "text-gray-100"}`} title={value != null ? fmtFull(value) : undefined}>
+        {value != null ? fmtCompact(value) : "—"}
+      </p>
+    </div>
+  );
+}
+
+function MuralLat({ label, p50, p95 }: { label: string; p50?: number; p95?: number }) {
+  const tone = slaTone(p50);
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wider text-gray-500">{label}</p>
+      <div className="flex items-baseline gap-2">
+        <span className={`h-2.5 w-2.5 shrink-0 self-center rounded-full ${SLA_DOT[tone]}`} aria-hidden />
+        <span className={`text-2xl font-bold ${SLA_VALUE[tone]}`}>{fmtDur(p50)}</span>
+        <span className="text-xs text-gray-500">p50 · p95 {fmtDur(p95)}</span>
+      </div>
+    </div>
+  );
+}
+
+function MuralPanel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-5">
+      <p className="mb-3 shrink-0 text-sm font-semibold uppercase tracking-wider text-gray-400">{title}</p>
+      <div className="min-h-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+function SlideMural({ ov, empresas, aging }: { ov?: Overview; empresas?: { items: EmpresaAgg[] }; aging?: Aging }) {
+  const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import : 0;
+  const bars = PAINEL_STATUSES.filter((s) => s !== "imported");
+  const counts = ov ? bars.map((s) => ({ status: s, count: statusCount(ov, s) })) : [];
+  const maxC = Math.max(1, ...counts.map((c) => c.count));
+  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import;
+  const top = [...(empresas?.items ?? [])]
+    .filter((e) => e.codigo_empresa != null && pend(e) > 0)
+    .sort((a, b) => pend(b) - pend(a))
+    .slice(0, 6);
+  const maxP = Math.max(1, ...top.map(pend));
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <div className="grid grid-cols-5 gap-3">
+        <MuralStat label="A Sincronizar" value={ov?.arrived} accent="text-yellow-400" />
+        <MuralStat label="Sincronizadas" value={ov?.synced} accent="text-sky-400" />
+        <MuralStat label="Aguardando Importação" value={ov?.pending_import} accent="text-amber-400" />
+        <MuralStat label="Importadas hoje" value={ov?.imported_today} accent="text-rps-sage" />
+        <MuralStat label="Ignoradas" value={ov?.import_ignored} />
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-4">
+        <MuralPanel title="Backlog & latências (30d)">
+          <div className="flex h-full items-center gap-10">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-gray-500">Backlog pendente</p>
+              <p className="text-6xl font-bold tabular-nums text-gray-100" title={fmtFull(pendentes)}>{fmtCompact(pendentes)}</p>
+              <p className="mt-1 text-sm text-gray-500">{ov ? fmtCompact(ov.in_transit) : "—"} em trânsito</p>
+            </div>
+            <div className="space-y-4">
+              <MuralLat label="Chegada → sync" p50={ov?.lat_arrival_sync_p50_s} p95={ov?.lat_arrival_sync_p95_s} />
+              <MuralLat label="Sync → importação" p50={ov?.lat_sync_import_p50_s} p95={ov?.lat_sync_import_p95_s} />
+            </div>
+          </div>
+        </MuralPanel>
+
+        <MuralPanel title="Distribuição por status">
+          <ul className="flex h-full flex-col justify-center gap-2.5">
+            {counts.map((c) => (
+              <li key={c.status} className="flex items-center gap-3">
+                <span className="w-44 shrink-0 truncate text-sm text-gray-300">{XML_STATUS_LABEL[c.status]}</span>
+                <div className="h-3 flex-1 overflow-hidden rounded-full bg-gray-800">
+                  <div className={`h-full rounded-full ${STATUS_BAR_FILL[c.status]}`} style={{ width: `${(c.count / maxC) * 100}%` }} />
+                </div>
+                <span className="w-24 shrink-0 whitespace-nowrap text-right text-xl font-bold tabular-nums text-gray-100" title={fmtFull(c.count)}>{fmtCompact(c.count)}</span>
+              </li>
+            ))}
+          </ul>
+        </MuralPanel>
+
+        <MuralPanel title="Idade do backlog">
+          <div className="grid h-full grid-cols-2 items-center gap-6">
+            <AgingBars title="Aguardando sincronização" buckets={aging?.to_sync ?? []} />
+            <AgingBars title="Aguardando importação" buckets={aging?.to_import ?? []} />
+          </div>
+        </MuralPanel>
+
+        <MuralPanel title="Empresas com mais pendentes">
+          <ul className="flex h-full flex-col justify-center gap-2.5">
+            {top.length === 0 ? (
+              <li className="text-lg text-gray-500">Nenhuma empresa pendente. 🎉</li>
+            ) : top.map((e) => (
+              <li key={`${e.codigo_empresa}-${e.codigo_filial ?? "x"}`} className="flex items-center gap-3">
+                <span className="w-48 shrink-0 truncate text-sm text-gray-300" title={e.nome_empresa}>{e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`}</span>
+                <div className="h-3 flex-1 overflow-hidden rounded-full bg-gray-800">
+                  <div className="h-full rounded-full bg-rps-sage" style={{ width: `${(pend(e) / maxP) * 100}%` }} />
+                </div>
+                <span className="w-20 shrink-0 whitespace-nowrap text-right text-xl font-bold tabular-nums text-gray-100" title={fmtFull(pend(e))}>{fmtCompact(pend(e))}</span>
+              </li>
+            ))}
+          </ul>
+        </MuralPanel>
+      </div>
+    </div>
+  );
+}
+
+function PresentationMode({ initialMode, onClose }: { initialMode: "slides" | "mural"; onClose: () => void }) {
   const overview = useQuery({ queryKey: ["xml", "present", "overview"], queryFn: () => xmlMetricsApi.overview().then((r) => r.data), refetchInterval: 15_000 });
   const empresas = useQuery({ queryKey: ["xml", "empresas", "painel"], queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data), refetchInterval: 30_000 });
   const aging = useQuery({ queryKey: ["xml", "aging", "painel"], queryFn: () => xmlMetricsApi.aging().then((r) => r.data), refetchInterval: 60_000 });
   const ts = useQuery({ queryKey: ["xml", "timeseries", "30d"], queryFn: () => xmlMetricsApi.timeseries("30d", "day").then((r) => r.data), refetchInterval: 60_000 });
 
+  const [mode, setMode] = useState<"slides" | "mural">(initialMode);
   const [slide, setSlide] = useState(0);
   const [now, setNow] = useState(() => new Date());
   useWakeLock(true);
 
+  // Giro automático só no modo slides; o mural mostra tudo de uma vez.
   useEffect(() => {
+    if (mode !== "slides") return;
     const id = setInterval(() => setSlide((s) => (s + 1) % PRESENT_SLIDES.length), PRESENT_INTERVAL_MS);
     return () => clearInterval(id);
-  }, []);
+  }, [mode]);
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
@@ -2889,15 +3008,30 @@ function PresentationMode({ onClose }: { onClose: () => void }) {
         <div className="flex items-baseline gap-3">
           <RadioTower className="h-6 w-6 shrink-0 self-center text-rps-sage" aria-hidden />
           <span className="text-2xl font-semibold">Rastreador XML</span>
-          <span className="text-lg text-gray-400">· {PRESENT_SLIDES[slide]}</span>
+          <span className="text-lg text-gray-400">· {mode === "mural" ? "Visão geral" : PRESENT_SLIDES[slide]}</span>
         </div>
         <div className="flex items-center gap-6">
           <span className="tabular-nums text-3xl font-semibold">{now.toLocaleTimeString("pt-BR")}</span>
-          <div className="flex gap-2">
-            {PRESENT_SLIDES.map((s, i) => (
-              <span key={s} className={`h-2.5 w-2.5 rounded-full ${i === slide ? "bg-rps-sage" : "bg-gray-700"}`} aria-hidden />
+          {/* Toggle Slides | Mural */}
+          <div className="inline-flex rounded-md border border-gray-700 bg-gray-900 p-0.5 text-sm">
+            {(["slides", "mural"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={`rounded px-3 py-1 font-medium transition-colors ${mode === m ? "bg-rps-olive-dark text-white" : "text-gray-400 hover:text-white"}`}
+              >
+                {m === "slides" ? "Slides" : "Mural"}
+              </button>
             ))}
           </div>
+          {mode === "slides" && (
+            <div className="flex gap-2">
+              {PRESENT_SLIDES.map((s, i) => (
+                <span key={s} className={`h-2.5 w-2.5 rounded-full ${i === slide ? "bg-rps-sage" : "bg-gray-700"}`} aria-hidden />
+              ))}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => document.documentElement.requestFullscreen?.().catch(() => {})}
@@ -2915,6 +3049,8 @@ function PresentationMode({ onClose }: { onClose: () => void }) {
       <main className="flex-1 overflow-hidden p-10">
         {erroredAll ? (
           <div className="flex h-full items-center justify-center text-3xl text-gray-500">Rastreador indisponível — reconectando…</div>
+        ) : mode === "mural" ? (
+          <SlideMural ov={ov} empresas={empresas.data} aging={aging.data} />
         ) : slide === 0 ? (
           <SlideResumo ov={ov} />
         ) : slide === 1 ? (
@@ -2927,7 +3063,7 @@ function PresentationMode({ onClose }: { onClose: () => void }) {
       </main>
 
       <footer className="px-8 py-2 text-center text-sm text-gray-600">
-        RPS Contabilidade · atualização automática · ← → troca slide · Esc para sair
+        RPS Contabilidade · atualização automática · {mode === "slides" ? "← → troca slide · " : ""}Esc para sair
       </footer>
     </div>
   );
