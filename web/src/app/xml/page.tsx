@@ -4,7 +4,7 @@ import { Fragment, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info, Download, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { AlertTriangle, X, Copy, Check, ChevronRight, ChevronDown, ChevronUp, Bot, RadioTower, Info, Download, ArrowDownLeft, ArrowUpRight, Monitor, Maximize2 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -22,7 +22,9 @@ import {
   type DateField,
   type EmpresaAgg,
   type Overview,
+  type Aging,
   type AgingBucket,
+  type Timeseries,
   type TimeseriesRange,
 } from "@/lib/xml-api";
 import { toCsv, downloadCsv } from "@/lib/csv";
@@ -718,6 +720,16 @@ function XmlPageContent() {
   const [offset, setOffset] = useState(() => Number(sp.get("offset")) || 0);
   const [selected, setSelected] = useState<string | null>(null);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  // Modo Apresentação (TV). Abre via botão (com fullscreen) ou ?present=1.
+  const [presenting, setPresenting] = useState(() => sp.get("present") === "1");
+  function startPresentation() {
+    setPresenting(true);
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  }
+  function stopPresentation() {
+    setPresenting(false);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  }
   // Período dos cards (item #5). today via lazy init (não usa relógio em render).
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [cardRange, setCardRange] = useState<CardRange>("all");
@@ -992,15 +1004,26 @@ function XmlPageContent() {
 
   return (
     <div className="space-y-5">
-      {/* Frescor dos dados + acesso ao status dos serviços do tracker */}
+      {/* Frescor dos dados + acesso ao status dos serviços do tracker + modo TV */}
       <div className="flex items-center justify-between">
-        <Link
-          href="/xml/status"
-          className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors shadow-sm"
-        >
-          <RadioTower className="h-3.5 w-3.5" aria-hidden />
-          Status do tracker
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/xml/status"
+            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors shadow-sm"
+          >
+            <RadioTower className="h-3.5 w-3.5" aria-hidden />
+            Status do tracker
+          </Link>
+          <button
+            type="button"
+            onClick={startPresentation}
+            title="Modo Apresentação em tela cheia (ideal pra TV)"
+            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:border-rps-olive-dark hover:text-rps-olive-dark transition-colors shadow-sm"
+          >
+            <Monitor className="h-3.5 w-3.5" aria-hidden />
+            Apresentação
+          </button>
+        </div>
         <FreshnessIndicator
           updatedAt={overview.dataUpdatedAt}
           isFetching={overview.isFetching}
@@ -1441,6 +1464,7 @@ function XmlPageContent() {
       )}
 
       {selected && <NotaDetailModal chave={selected} onClose={() => setSelected(null)} />}
+      {presenting && <PresentationMode onClose={stopPresentation} />}
     </div>
   );
 }
@@ -2490,7 +2514,10 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
                   onClick={() => onDrill(f, { dateField, from, to, docFilter, direction })}
                 >
                   <Td className="max-w-[300px] text-gray-600 dark:text-gray-400">
-                    <span className="flex items-center gap-2 pl-6">
+                    {/* Indenta + rail à esquerda: as filiais consecutivas formam
+                        uma linha vertical contínua, deixando claro que pertencem
+                        à empresa-mãe acima. */}
+                    <span className="ml-3 flex items-center gap-2 border-l-2 border-gray-200 pl-4 dark:border-gray-700">
                       <HealthDot e={f} />
                       <span className="truncate">Filial #{f.codigo_filial ?? 1}</span>
                     </span>
@@ -2620,6 +2647,272 @@ function Field({ label, value, children }: { label: string; value?: string; chil
     <div>
       <p className="text-xs font-medium uppercase tracking-wider text-gray-400">{label}</p>
       <div className="mt-0.5 text-gray-800 dark:text-gray-200">{children ?? value}</div>
+    </div>
+  );
+}
+
+// ── Modo Apresentação (TV / vitrine) ──────────────────────────────────────────
+// Overlay em tela cheia que gira os principais indicadores do Rastreador XML pra
+// exibição contínua numa TV. Tema escuro forçado (wrapper .dark), fontes grandes,
+// dados atualizando sozinhos. Abre por botão (com fullscreen) ou via ?present=1.
+
+const PRESENT_SLIDES = ["Resumo geral", "Distribuição por status", "Idade do backlog", "Top empresas & tendência"];
+const PRESENT_INTERVAL_MS = 15_000;
+
+// Mantém a tela acesa enquanto a apresentação está ativa (best-effort).
+function useWakeLock(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    let released = false;
+    let lock: { release?: () => Promise<void> } | null = null;
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<typeof lock> } };
+    nav.wakeLock
+      ?.request("screen")
+      .then((l) => { if (released) l?.release?.(); else lock = l; })
+      .catch(() => {});
+    return () => { released = true; lock?.release?.().catch(() => {}); };
+  }, [active]);
+}
+
+function BigStat({ label, value, accent }: { label: string; value?: number; accent?: string }) {
+  return (
+    <div className="flex flex-col justify-center rounded-xl border border-gray-800 bg-gray-900 p-6">
+      <p className="text-sm uppercase tracking-wider text-gray-400">{label}</p>
+      <p
+        className={`mt-2 text-5xl font-bold tabular-nums ${accent ?? "text-gray-100"}`}
+        title={value != null ? fmtFull(value) : undefined}
+      >
+        {value != null ? fmtCompact(value) : "—"}
+      </p>
+    </div>
+  );
+}
+
+function BigLatency({ label, p50, p95 }: { label: string; p50?: number; p95?: number }) {
+  const tone = slaTone(p50);
+  return (
+    <div className="flex flex-col justify-center rounded-xl border border-gray-800 bg-gray-900 p-6">
+      <p className="text-sm uppercase tracking-wider text-gray-400">{label}</p>
+      <div className="mt-2 flex items-baseline gap-3">
+        <span className={`h-4 w-4 shrink-0 self-center rounded-full ${SLA_DOT[tone]}`} aria-hidden />
+        <span className={`text-5xl font-bold ${SLA_VALUE[tone]}`}>{fmtDur(p50)}</span>
+        <span className="text-base text-gray-400">p50 · {SLA_WORD[tone]}</span>
+      </div>
+      <p className="mt-1 text-base text-gray-500">p95 {fmtDur(p95)}</p>
+    </div>
+  );
+}
+
+function SlideResumo({ ov }: { ov?: Overview }) {
+  const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import : 0;
+  return (
+    <div className="flex h-full flex-col gap-5">
+      <div className="grid grid-cols-5 gap-4">
+        <BigStat label="A Sincronizar" value={ov?.arrived} accent="text-yellow-400" />
+        <BigStat label="Sincronizadas" value={ov?.synced} accent="text-sky-400" />
+        <BigStat label="Aguardando Importação" value={ov?.pending_import} accent="text-amber-400" />
+        <BigStat label="Importadas hoje" value={ov?.imported_today} accent="text-rps-sage" />
+        <BigStat label="Ignoradas" value={ov?.import_ignored} />
+      </div>
+      <div className="grid flex-1 grid-cols-3 gap-4">
+        <div className="flex flex-col justify-center rounded-xl border border-gray-800 bg-gray-900 p-6">
+          <p className="text-sm uppercase tracking-wider text-gray-400">Backlog pendente</p>
+          <p className="mt-2 text-7xl font-bold tabular-nums text-gray-100" title={fmtFull(pendentes)}>{fmtCompact(pendentes)}</p>
+          <p className="mt-1 text-base text-gray-500">
+            {ov ? fmtCompact(ov.in_transit) : "—"} em trânsito
+          </p>
+        </div>
+        <BigLatency label="Chegada → sync (30d)" p50={ov?.lat_arrival_sync_p50_s} p95={ov?.lat_arrival_sync_p95_s} />
+        <BigLatency label="Sync → importação (30d)" p50={ov?.lat_sync_import_p50_s} p95={ov?.lat_sync_import_p95_s} />
+      </div>
+    </div>
+  );
+}
+
+function SlideStatus({ ov }: { ov?: Overview }) {
+  const bars = PAINEL_STATUSES.filter((s) => s !== "imported");
+  const counts = ov ? bars.map((s) => ({ status: s, count: statusCount(ov, s) })) : [];
+  const max = Math.max(1, ...counts.map((c) => c.count));
+  return (
+    <div className="flex h-full flex-col justify-center gap-5">
+      {counts.map((c) => (
+        <div key={c.status} className="flex items-center gap-5">
+          <span className="w-64 shrink-0 text-2xl font-medium text-gray-200">{XML_STATUS_LABEL[c.status]}</span>
+          <div className="h-7 flex-1 overflow-hidden rounded-full bg-gray-800">
+            <div className={`h-full rounded-full ${STATUS_BAR_FILL[c.status]}`} style={{ width: `${(c.count / max) * 100}%` }} />
+          </div>
+          <span className="w-32 shrink-0 text-right text-4xl font-bold tabular-nums text-gray-100" title={fmtFull(c.count)}>
+            {fmtCompact(c.count)}
+          </span>
+        </div>
+      ))}
+      <p className="mt-2 text-lg text-gray-500">
+        Importadas (total): <b className="text-rps-sage">{ov ? fmtCompact(ov.imported) : "—"}</b>
+      </p>
+    </div>
+  );
+}
+
+function BigAgingCol({ title, buckets }: { title: string; buckets: AgingBucket[] }) {
+  const max = Math.max(1, ...buckets.map((b) => b.count));
+  return (
+    <div>
+      <p className="mb-4 text-xl font-medium text-gray-300">{title}</p>
+      <ul className="space-y-3">
+        {buckets.map((b) => (
+          <li key={b.label} className="flex items-center gap-4">
+            <span className="w-16 shrink-0 text-lg tabular-nums text-gray-400">{b.label}</span>
+            <div className="h-5 flex-1 overflow-hidden rounded-full bg-gray-800">
+              <div className={`h-full rounded-full ${AGE_BUCKET_FILL[b.label] ?? "bg-gray-500"}`} style={{ width: `${(b.count / max) * 100}%` }} />
+            </div>
+            <span className="w-24 shrink-0 text-right text-3xl font-bold tabular-nums text-gray-100" title={fmtFull(b.count)}>
+              {fmtCompact(b.count)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SlideAging({ data }: { data?: Aging }) {
+  if (!data || (data.to_sync.length === 0 && data.to_import.length === 0)) {
+    return <div className="flex h-full items-center justify-center text-3xl text-gray-500">Sem backlog pendente. 🎉</div>;
+  }
+  return (
+    <div className="grid h-full grid-cols-2 gap-12 px-4 pt-4">
+      <BigAgingCol title="Aguardando sincronização" buckets={data.to_sync} />
+      <BigAgingCol title="Aguardando importação" buckets={data.to_import} />
+    </div>
+  );
+}
+
+function SlideEmpresasTrend({ empresas, ts }: { empresas?: { items: EmpresaAgg[] }; ts?: Timeseries }) {
+  const pend = (e: EmpresaAgg) => e.arrived + e.synced + e.pending_import;
+  const top = [...(empresas?.items ?? [])]
+    .filter((e) => e.codigo_empresa != null && pend(e) > 0)
+    .sort((a, b) => pend(b) - pend(a))
+    .slice(0, 8);
+  const maxPend = Math.max(1, ...top.map(pend));
+  const buckets = ts?.buckets ?? [];
+  const series: ChartSeries[] = VOLUME_META.map((m) => ({
+    label: m.label, strokeCls: m.strokeCls, fillCls: m.fillCls, swatchCls: m.swatchCls,
+    values: buckets.map((b) => b[m.key]),
+  }));
+  return (
+    <div className="grid h-full grid-cols-2 gap-10">
+      <div>
+        <p className="mb-4 text-xl font-medium text-gray-300">Empresas com mais pendentes</p>
+        <ul className="space-y-3">
+          {top.length === 0 ? (
+            <li className="text-2xl text-gray-500">Nenhuma empresa pendente. 🎉</li>
+          ) : top.map((e) => (
+            <li key={`${e.codigo_empresa}-${e.codigo_filial ?? "x"}`} className="flex items-center gap-4">
+              <span className="w-64 shrink-0 truncate text-lg text-gray-200" title={e.nome_empresa}>
+                {e.nome_empresa || `#${e.codigo_empresa}-${e.codigo_filial ?? 1}`}
+              </span>
+              <div className="h-4 flex-1 overflow-hidden rounded-full bg-gray-800">
+                <div className="h-full rounded-full bg-rps-sage" style={{ width: `${(pend(e) / maxPend) * 100}%` }} />
+              </div>
+              <span className="w-20 shrink-0 text-right text-2xl font-bold tabular-nums text-gray-100" title={fmtFull(pend(e))}>
+                {fmtCompact(pend(e))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="flex flex-col">
+        <p className="mb-4 text-xl font-medium text-gray-300">Volume por dia (30d)</p>
+        {chartHasData(series) ? (
+          <>
+            <LineChart series={series} xLabels={buckets.map((b) => ddmm(b.date))} height={260} formatY={(n) => fmtCompact(Math.round(n))} formatTip={(n) => fmtFull(Math.round(n))} />
+            <ChartLegend series={series} />
+          </>
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-2xl text-gray-500">Sem série no período.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PresentationMode({ onClose }: { onClose: () => void }) {
+  const overview = useQuery({ queryKey: ["xml", "present", "overview"], queryFn: () => xmlMetricsApi.overview().then((r) => r.data), refetchInterval: 15_000 });
+  const empresas = useQuery({ queryKey: ["xml", "empresas", "painel"], queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data), refetchInterval: 30_000 });
+  const aging = useQuery({ queryKey: ["xml", "aging", "painel"], queryFn: () => xmlMetricsApi.aging().then((r) => r.data), refetchInterval: 60_000 });
+  const ts = useQuery({ queryKey: ["xml", "timeseries", "30d"], queryFn: () => xmlMetricsApi.timeseries("30d", "day").then((r) => r.data), refetchInterval: 60_000 });
+
+  const [slide, setSlide] = useState(0);
+  const [now, setNow] = useState(() => new Date());
+  useWakeLock(true);
+
+  useEffect(() => {
+    const id = setInterval(() => setSlide((s) => (s + 1) % PRESENT_SLIDES.length), PRESENT_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight") setSlide((s) => (s + 1) % PRESENT_SLIDES.length);
+      else if (e.key === "ArrowLeft") setSlide((s) => (s - 1 + PRESENT_SLIDES.length) % PRESENT_SLIDES.length);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const ov = overview.data;
+  const erroredAll = overview.isError && aging.isError;
+
+  return (
+    <div className="dark fixed inset-0 z-50 flex flex-col bg-gray-950 text-gray-100">
+      <header className="flex items-center justify-between border-b border-gray-800 px-8 py-4">
+        <div className="flex items-baseline gap-3">
+          <RadioTower className="h-6 w-6 shrink-0 self-center text-rps-sage" aria-hidden />
+          <span className="text-2xl font-semibold">Rastreador XML</span>
+          <span className="text-lg text-gray-400">· {PRESENT_SLIDES[slide]}</span>
+        </div>
+        <div className="flex items-center gap-6">
+          <span className="tabular-nums text-3xl font-semibold">{now.toLocaleTimeString("pt-BR")}</span>
+          <div className="flex gap-2">
+            {PRESENT_SLIDES.map((s, i) => (
+              <span key={s} className={`h-2.5 w-2.5 rounded-full ${i === slide ? "bg-rps-sage" : "bg-gray-700"}`} aria-hidden />
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => document.documentElement.requestFullscreen?.().catch(() => {})}
+            className="rounded p-1.5 text-gray-400 hover:text-white"
+            aria-label="Tela cheia"
+          >
+            <Maximize2 className="h-5 w-5" aria-hidden />
+          </button>
+          <button type="button" onClick={onClose} className="rounded p-1.5 text-gray-400 hover:text-white" aria-label="Sair da apresentação">
+            <X className="h-6 w-6" aria-hidden />
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 overflow-hidden p-10">
+        {erroredAll ? (
+          <div className="flex h-full items-center justify-center text-3xl text-gray-500">Rastreador indisponível — reconectando…</div>
+        ) : slide === 0 ? (
+          <SlideResumo ov={ov} />
+        ) : slide === 1 ? (
+          <SlideStatus ov={ov} />
+        ) : slide === 2 ? (
+          <SlideAging data={aging.data} />
+        ) : (
+          <SlideEmpresasTrend empresas={empresas.data} ts={ts.data} />
+        )}
+      </main>
+
+      <footer className="px-8 py-2 text-center text-sm text-gray-600">
+        RPS Contabilidade · atualização automática · ← → troca slide · Esc para sair
+      </footer>
     </div>
   );
 }
