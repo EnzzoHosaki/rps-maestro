@@ -435,6 +435,16 @@ function fmtTs(s?: string): string {
   return s ? format(new Date(s), "dd/MM/yyyy HH:mm:ss") : "—";
 }
 
+// Data (sem hora) — reformata "YYYY-MM-DD[...]" direto pra dd/MM/yyyy, sem passar
+// por Date (evita o deslize de fuso que jogaria a meia-noite UTC pro dia anterior).
+function fmtDateOnly(s?: string): string {
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : format(d, "dd/MM/yyyy");
+}
+
 // ── Exportação CSV ────────────────────────────────────────────────────────────
 // Teto de linhas por exportação de notas. É client-side (puxa o conjunto numa
 // requisição só), então limitamos pra não derrubar o navegador num filtro amplo
@@ -509,6 +519,14 @@ function empresaToCsvRow(e: EmpresaAgg): (string | number | null)[] {
 // SLA. É um proxy de triagem (não considera idade — latência é global).
 const HEALTH_WARN = 0.1;
 const HEALTH_CRIT = 0.3;
+// Filtro de saúde da aba Empresas. "none" (sem notas) só aparece com "all".
+type HealthFilter = "all" | "ok" | "warn" | "crit";
+const HEALTH_FILTERS: { value: HealthFilter; label: string }[] = [
+  { value: "all", label: "Toda saúde" },
+  { value: "ok", label: "Saudável (<10%)" },
+  { value: "warn", label: "Atenção (10–30%)" },
+  { value: "crit", label: "Crítica (>30%)" },
+];
 function empresaHealth(e: EmpresaAgg): { tone: SlaTone; pct: number | null } {
   const tracked = e.arrived + e.synced + e.pending_import + e.imported + e.import_ignored;
   if (tracked === 0) return { tone: "none", pct: null };
@@ -532,7 +550,8 @@ function HealthDot({ e }: { e: EmpresaAgg }) {
 // consultas frequentes (ex.: "minhas empresas travadas"). Guarda só os filtros
 // explícitos (status/tipo/busca/empresa/cnpj/data) — não a navegação por
 // drill-down (codigo_empresa).
-const PRESETS_KEY = "xml:notas:presets";
+const NOTAS_PRESETS_KEY = "xml:notas:presets";
+const EMPRESAS_PRESETS_KEY = "xml:empresas:presets";
 type NotasPresetFilters = {
   statusFilter: NotaStatus | "all";
   docFilter: DocType | "all";
@@ -545,39 +564,51 @@ type NotasPresetFilters = {
   from: string;
   to: string;
 };
-type NotasPreset = NotasPresetFilters & { name: string };
+type EmpresasPresetFilters = {
+  search: string;
+  docFilter: DocType | "all";
+  direction: Direction | "all";
+  healthFilter: HealthFilter;
+  dateField: DateField;
+  from: string;
+  to: string;
+};
 
-function loadPresets(): NotasPreset[] {
+function loadSaved<T extends Record<string, string>>(key: string): (T & { name: string })[] {
   if (typeof window === "undefined") return [];
   try {
-    const v = JSON.parse(localStorage.getItem(PRESETS_KEY) ?? "[]");
+    const v = JSON.parse(localStorage.getItem(key) ?? "[]");
     return Array.isArray(v) ? v : [];
   } catch {
     return [];
   }
 }
 
-function NotasPresets({
+// Menu "Consultas salvas" genérico (Notas e Empresas). Guarda os filtros (todos
+// strings) em localStorage sob `storageKey`; aplicar chama onApply.
+function SavedQueriesMenu<T extends Record<string, string>>({
+  storageKey,
   current,
   onApply,
 }: {
-  current: NotasPresetFilters;
-  onApply: (p: NotasPresetFilters) => void;
+  storageKey: string;
+  current: T;
+  onApply: (f: T) => void;
 }) {
   const [open, setOpen] = useState(false);
   // Lazy init: lê o localStorage no 1º render do cliente (o menu começa fechado,
   // então não há conteúdo de preset no HTML estático → sem mismatch de hidratação).
-  const [presets, setPresets] = useState<NotasPreset[]>(loadPresets);
+  const [items, setItems] = useState<(T & { name: string })[]>(() => loadSaved<T>(storageKey));
   const [name, setName] = useState("");
 
-  function persist(next: NotasPreset[]) {
-    setPresets(next);
-    localStorage.setItem(PRESETS_KEY, JSON.stringify(next));
+  function persist(next: (T & { name: string })[]) {
+    setItems(next);
+    localStorage.setItem(storageKey, JSON.stringify(next));
   }
   function save() {
     const n = name.trim();
     if (!n) return;
-    persist([...presets.filter((p) => p.name !== n), { ...current, name: n }]);
+    persist([...items.filter((p) => p.name !== n), { ...current, name: n } as T & { name: string }]);
     setName("");
     toast.success(`Consulta "${n}" salva.`);
   }
@@ -597,11 +628,11 @@ function NotasPresets({
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} aria-hidden />
           <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 shadow-lg">
-            {presets.length === 0 ? (
+            {items.length === 0 ? (
               <p className="px-2 py-1.5 text-xs text-gray-400">Nenhuma consulta salva ainda.</p>
             ) : (
               <ul className="max-h-60 overflow-y-auto">
-                {presets.map((p) => (
+                {items.map((p) => (
                   <li key={p.name} className="flex items-center gap-1">
                     <button
                       type="button"
@@ -615,7 +646,7 @@ function NotasPresets({
                     </button>
                     <button
                       type="button"
-                      onClick={() => persist(presets.filter((x) => x.name !== p.name))}
+                      onClick={() => persist(items.filter((x) => x.name !== p.name))}
                       aria-label={`Excluir consulta ${p.name}`}
                       className="rounded p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
                     >
@@ -737,7 +768,7 @@ function XmlPageContent() {
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [cardRange, setCardRange] = useState<CardRange>("all");
   const [cardDateField, setCardDateField] = useState<DateField>("arrived");
-  type NotasSortKey = "chave" | "numero" | "tipo" | "empresa" | "emitente" | "status" | "evento";
+  type NotasSortKey = "chave" | "numero" | "tipo" | "emissao" | "empresa" | "emitente" | "status" | "evento";
   const [notasSort, setNotasSort] = useState<{ key: NotasSortKey; dir: "asc" | "desc" } | null>(null);
   const toggleNotasSort = (key: NotasSortKey) =>
     setNotasSort((s) =>
@@ -891,6 +922,7 @@ function XmlPageContent() {
           case "chave":   return dir * a.chave_acesso.localeCompare(b.chave_acesso);
           case "numero":  return dir * (a.numero_nota ?? "").localeCompare(b.numero_nota ?? "");
           case "tipo":    return dir * a.doc_type.localeCompare(b.doc_type);
+          case "emissao": return dir * ((a.data_emissao ?? "").localeCompare(b.data_emissao ?? ""));
           case "empresa": return dir * (a.nome_empresa ?? "").localeCompare(b.nome_empresa ?? "");
           case "emitente":return dir * (a.nome_emitente ?? "").localeCompare(b.nome_emitente ?? "");
           case "status":  return dir * ((STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
@@ -1277,7 +1309,7 @@ function XmlPageContent() {
               </span>
             )}
           </span>
-          <NotasPresets current={currentPreset} onApply={applyPreset} />
+          <SavedQueriesMenu storageKey={NOTAS_PRESETS_KEY} current={currentPreset} onApply={applyPreset} />
           <button
             type="button"
             onClick={exportNotasCsv}
@@ -1361,11 +1393,12 @@ function XmlPageContent() {
               { key: "chave",    label: "Chave" },
               { key: "numero",   label: "Número" },
               { key: "tipo",     label: "Tipo" },
+              { key: "emissao",  label: "Emissão", title: "Data de emissão da nota" },
               { key: "empresa",  label: "Empresa" },
               { key: "emitente", label: "Emitente" },
               { key: "status",   label: "Status" },
               { key: "evento",   label: "Último evento", title: "Data do evento mais recente (chegada, sincronização ou importação)" },
-            ] as { key: "chave"|"numero"|"tipo"|"empresa"|"emitente"|"status"|"evento"; label: string; title?: string }[]
+            ] as { key: "chave"|"numero"|"tipo"|"emissao"|"empresa"|"emitente"|"status"|"evento"; label: string; title?: string }[]
           ).map(({ key, label, title }) => (
             <Th key={key} title={title}>
               <button
@@ -1394,6 +1427,7 @@ function XmlPageContent() {
               </Td>
               <Td className="font-mono text-xs text-gray-600 dark:text-gray-400">{n.numero_nota || "—"}</Td>
               <Td className="text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</Td>
+              <Td className="whitespace-nowrap text-gray-600 dark:text-gray-400">{fmtDateOnly(n.data_emissao)}</Td>
               <Td className="max-w-[220px] truncate text-gray-700 dark:text-gray-300" title={n.nome_empresa}>
                 {n.codigo_empresa ? (
                   <button
@@ -1426,12 +1460,12 @@ function XmlPageContent() {
             </Tr>
           ))}
           {list.isError && items.length === 0 && (
-            <ErrorRow colSpan={7} onRetry={() => list.refetch()} />
+            <ErrorRow colSpan={8} onRetry={() => list.refetch()} />
           )}
           {!list.isLoading && !list.isError && items.length === 0 && (
-            <EmptyRow colSpan={7}>Nenhuma nota encontrada com os filtros atuais.</EmptyRow>
+            <EmptyRow colSpan={8}>Nenhuma nota encontrada com os filtros atuais.</EmptyRow>
           )}
-          {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={7} />)}
+          {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={8} />)}
         </TBody>
       </Table>
       </div>{/* /relative */}
@@ -2175,11 +2209,12 @@ function SortIcon({ active, dir }: { active: boolean; dir?: "asc" | "desc" }) {
     : <ChevronDown className="h-3 w-3" aria-hidden />;
 }
 
-type EmpSortKey = "empresa" | "pendentes" | "arrived" | "synced" | "pending_import" | "imported";
+type EmpSortKey = "empresa" | "saude" | "pendentes" | "arrived" | "synced" | "pending_import" | "imported";
 
 // Colunas numéricas da tabela de Empresas, com rótulo curto + tooltip (o
 // cabeçalho é abreviado por espaço) + tom de cor. Ordem = ordem na tabela.
 const EMP_COLS: { key: EmpSortKey; label: string; title: string; tone?: "danger" | "warn" }[] = [
+  { key: "saude", label: "Saúde", title: "% das notas rastreadas que estão pendentes" },
   { key: "pendentes", label: "Pendentes", title: "Chegou + sincronizado + aguardando importação" },
   { key: "arrived", label: "A sinc.", title: "A sincronizar", tone: "warn" },
   { key: "synced", label: "Sincr.", title: "Sincronizadas" },
@@ -2190,6 +2225,8 @@ const EMP_COLS: { key: EmpSortKey; label: string; title: string; tone?: "danger"
 function empValue(e: EmpresaAgg, key: EmpSortKey): number | string {
   if (key === "empresa") return e.nome_empresa ?? "";
   if (key === "pendentes") return e.arrived + e.synced + e.pending_import;
+  // "sem notas" (pct null) ordena como o menor valor.
+  if (key === "saude") return empresaHealth(e).pct ?? -1;
   return e[key];
 }
 
@@ -2209,6 +2246,8 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
   // Tipo de documento e direção — forçam o recompute ao vivo no tracker.
   const [docFilter, setDocFilter] = useState<DocType | "all">("all");
   const [direction, setDirection] = useState<Direction | "all">("all");
+  // Filtro de saúde (client-side, sobre o agregado da empresa).
+  const [healthFilter, setHealthFilter] = useState<HealthFilter>("all");
   const q = useQuery({
     // Busca por nome via API (?q=, parcial/case-insensitive) + filtros (data,
     // tipo, direção). Mantém limit:0 (todas as linhas) + sort/paginação client.
@@ -2228,6 +2267,18 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   });
+
+  // Consulta salva (preset) da aba Empresas.
+  const currentEmpresaPreset: EmpresasPresetFilters = { search, docFilter, direction, healthFilter, dateField, from, to };
+  function applyEmpresaPreset(p: EmpresasPresetFilters) {
+    setSearch(p.search ?? "");
+    setDocFilter(p.docFilter ?? "all");
+    setDirection(p.direction ?? "all");
+    setHealthFilter(p.healthFilter ?? "all");
+    setDateField(p.dateField ?? "imported");
+    setFrom(p.from ?? "");
+    setTo(p.to ?? "");
+  }
 
   const [sort, setSort] = useState<{ key: EmpSortKey; dir: "asc" | "desc" }>({
     key: "pendentes",
@@ -2299,13 +2350,17 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
       filiais: [semEmpresaRow], total: semEmpresaRow, isNoEmpresa: true,
     });
   }
-  const empresaCount = byEmpresa.size;
+  // Filtro de saúde: mantém só os grupos cujo agregado casa com a banda.
+  const shownGroups = healthFilter === "all" ? groups : groups.filter((g) => empresaHealth(g.total).tone === healthFilter);
+  const empresaCount = shownGroups.filter((g) => !g.isNoEmpresa).length;
   // Linhas planas (nível filial) pra exportação — granularidade mais útil.
-  const flatRows = [...items].sort((a, b) => {
-    const aNo = a.codigo_empresa == null, bNo = b.codigo_empresa == null;
-    if (aNo !== bNo) return aNo ? 1 : -1;
-    return cmp(a, b);
-  });
+  const flatRows = [...items]
+    .filter((e) => healthFilter === "all" || empresaHealth(e).tone === healthFilter)
+    .sort((a, b) => {
+      const aNo = a.codigo_empresa == null, bNo = b.codigo_empresa == null;
+      if (aNo !== bNo) return aNo ? 1 : -1;
+      return cmp(a, b);
+    });
 
   const numCols = 2 + EMP_COLS.length; // Empresa + colunas numéricas + chevron
   const cell = (n: number, tone?: "danger" | "warn") =>
@@ -2322,21 +2377,38 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
 
   // Células numéricas de uma linha (mãe ou filial) — mesmas colunas/estilo.
   const numCells = (e: EmpresaAgg) =>
-    EMP_COLS.map((col) =>
-      col.key === "pendentes" ? (
-        <Td key={col.key} className="text-right font-semibold text-gray-900 dark:text-gray-100">
-          <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
-        </Td>
-      ) : col.key === "imported" ? (
-        <Td key={col.key} className="text-right text-gray-500">
-          <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
-        </Td>
-      ) : (
+    EMP_COLS.map((col) => {
+      if (col.key === "saude") {
+        const h = empresaHealth(e);
+        return (
+          <Td key={col.key} className="text-right">
+            <span className="inline-flex items-center justify-end gap-1.5">
+              <HealthDot e={e} />
+              <span className="tabular-nums text-gray-700 dark:text-gray-300">{h.pct == null ? "—" : `${(h.pct * 100).toFixed(0)}%`}</span>
+            </span>
+          </Td>
+        );
+      }
+      if (col.key === "pendentes") {
+        return (
+          <Td key={col.key} className="text-right font-semibold text-gray-900 dark:text-gray-100">
+            <span title={fmtFull(pend(e))} className="cursor-help">{fmtCompact(pend(e))}</span>
+          </Td>
+        );
+      }
+      if (col.key === "imported") {
+        return (
+          <Td key={col.key} className="text-right text-gray-500">
+            <span title={fmtFull(e.imported)} className="cursor-help">{fmtCompact(e.imported)}</span>
+          </Td>
+        );
+      }
+      return (
         <Td key={col.key} className="text-right">
           {cell(empValue(e, col.key) as number, col.tone)}
         </Td>
-      ),
-    );
+      );
+    });
 
   return (
     <div className="space-y-3">
@@ -2365,6 +2437,16 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
           <option value="all">Entrada e saída</option>
           <option value="entrada">Entrada</option>
           <option value="saida">Saída</option>
+        </select>
+        <select
+          value={healthFilter}
+          onChange={(e) => setHealthFilter(e.target.value as HealthFilter)}
+          title="Filtrar por saúde (% das notas pendentes)"
+          className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-sm focus:border-rps-olive-dark focus:outline-none"
+        >
+          {HEALTH_FILTERS.map((h) => (
+            <option key={h.value} value={h.value}>{h.label}</option>
+          ))}
         </select>
         <div className="flex items-center gap-1.5 text-sm text-gray-500">
           <select
@@ -2423,6 +2505,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
           <Download className="h-3 w-3" aria-hidden />
           Exportar CSV
         </button>
+        <SavedQueriesMenu storageKey={EMPRESAS_PRESETS_KEY} current={currentEmpresaPreset} onApply={applyEmpresaPreset} />
       </div>
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
         <span>Agrupado por empresa — clique no <ChevronRight className="inline h-3 w-3" aria-hidden /> para ver as filiais.</span>
@@ -2467,7 +2550,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
         <Th className="w-8" aria-label="Abrir" />
       </THead>
       <TBody>
-        {groups.map((g) => {
+        {shownGroups.map((g) => {
           const multi = g.filiais.length > 1;
           const isOpen = g.codigo_empresa != null && expanded.has(g.codigo_empresa);
           // Linha-mãe: soma das filiais (multi) ou a própria filial única.
@@ -2494,7 +2577,6 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
                     ) : (
                       <span className="w-4 shrink-0" aria-hidden />
                     )}
-                    <HealthDot e={parent} />
                     <span className="truncate">
                       {g.isNoEmpresa ? <span className="italic text-gray-500">Sem empresa</span> : g.nome}
                       {multi && <span className="ml-1 text-xs text-gray-400">· {g.filiais.length} filiais</span>}
@@ -2521,7 +2603,6 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
                         uma linha vertical contínua, deixando claro que pertencem
                         à empresa-mãe acima. */}
                     <span className="ml-3 flex items-center gap-2 border-l-2 border-gray-200 pl-4 dark:border-gray-700">
-                      <HealthDot e={f} />
                       <span className="truncate">Filial #{f.codigo_filial ?? 1}</span>
                     </span>
                   </Td>
