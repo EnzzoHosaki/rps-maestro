@@ -202,9 +202,20 @@ export interface NotaListFilter {
 
 // ── Endpoints ────────────────────────────────────────────────────────────────
 
+// Apuração do filtro atual (GET /notas/summary): mesmos filtros de /notas,
+// devolve contagem + soma dos valores. Não pagina.
+export interface NotaSummary {
+  count: number;
+  valor_total: number;
+}
+
 export const notasApi = {
   list: (f: NotaListFilter = {}) =>
     xmlApi.get<NotaListResponse>("/notas", { params: cleanParams(f) }),
+  // Mesmos filtros da lista, sem paginação (limit/offset viram undefined →
+  // cleanParams os remove).
+  summary: (f: NotaListFilter = {}) =>
+    xmlApi.get<NotaSummary>("/notas/summary", { params: cleanParams({ ...f, limit: undefined, offset: undefined }) }),
   get: (chave: string) => xmlApi.get<NotaDetail>(`/notas/${chave}`),
 };
 
