@@ -768,7 +768,7 @@ function XmlPageContent() {
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [cardRange, setCardRange] = useState<CardRange>("all");
   const [cardDateField, setCardDateField] = useState<DateField>("arrived");
-  type NotasSortKey = "chave" | "numero" | "tipo" | "emissao" | "empresa" | "emitente" | "status" | "evento";
+  type NotasSortKey = "chave" | "numero" | "tipo" | "emissao" | "cod" | "empresa" | "emitente" | "valor" | "status" | "evento";
   const [notasSort, setNotasSort] = useState<{ key: NotasSortKey; dir: "asc" | "desc" } | null>(null);
   const toggleNotasSort = (key: NotasSortKey) =>
     setNotasSort((s) =>
@@ -857,6 +857,16 @@ function XmlPageContent() {
     enabled: view === "notas",
   });
 
+  // Apuração do filtro atual (contagem + soma dos valores). SEM offset na chave:
+  // muda com o filtro, não com a paginação (1 chamada por filtro, como pedido).
+  const summary = useQuery({
+    queryKey: ["xml", "notas-summary", { statusFilter, docFilter, direction, q, numero, empresa, cnpj, semEmpresa, codigoEmpresa, codigoFilial, dateField, from, to }],
+    queryFn: () => notasApi.summary(notaFilters).then((r) => r.data),
+    refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
+    enabled: view === "notas",
+  });
+
   const [exporting, setExporting] = useState(false);
   async function exportNotasCsv() {
     if (exporting) return;
@@ -923,8 +933,10 @@ function XmlPageContent() {
           case "numero":  return dir * (a.numero_nota ?? "").localeCompare(b.numero_nota ?? "");
           case "tipo":    return dir * a.doc_type.localeCompare(b.doc_type);
           case "emissao": return dir * ((a.data_emissao ?? "").localeCompare(b.data_emissao ?? ""));
+          case "cod":     return dir * ((a.codigo_empresa ?? 0) - (b.codigo_empresa ?? 0));
           case "empresa": return dir * (a.nome_empresa ?? "").localeCompare(b.nome_empresa ?? "");
           case "emitente":return dir * (a.nome_emitente ?? "").localeCompare(b.nome_emitente ?? "");
+          case "valor":   return dir * ((a.valor_total ?? 0) - (b.valor_total ?? 0));
           case "status":  return dir * ((STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
           case "evento":  return dir * ((lastEventIso(a) ?? "").localeCompare(lastEventIso(b) ?? ""));
           default:        return 0;
@@ -1169,22 +1181,23 @@ function XmlPageContent() {
               </p>
             </div>
             <LatencyHealthTile
-              label={`Chegada → sync (30d${empresaFiltered ? ", global" : ""})`}
+              label={`Espera chegada → sync${empresaFiltered ? " (global)" : ""}`}
               p50={ov.lat_arrival_sync_p50_s}
               p95={ov.lat_arrival_sync_p95_s}
             />
             <LatencyHealthTile
-              label={`Sync → importação (30d${empresaFiltered ? ", global" : ""})`}
+              label={`Espera sync → importação${empresaFiltered ? " (global)" : ""}`}
               p50={ov.lat_sync_import_p50_s}
               p95={ov.lat_sync_import_p95_s}
             />
           </div>
           <p className="text-xs text-gray-400">
-            Pendentes = chegou + sincronizado + aguardando importação. Latência: percentis
-            das transições dos últimos 30 dias (exclui backfill). SLA: <b className="font-medium text-green-700 dark:text-green-400">&lt;24h</b> ·{" "}
+            Pendentes = chegou + sincronizado + aguardando importação. Espera = tempo até a
+            transição, <b>incluindo as notas ainda paradas</b> (conta até agora) — sobe conforme o
+            backlog trava. SLA: <b className="font-medium text-green-700 dark:text-green-400">&lt;24h</b> ·{" "}
             <b className="font-medium text-amber-700 dark:text-amber-400">24–72h</b> ·{" "}
             <b className="font-medium text-red-700 dark:text-red-400">&gt;72h</b>.
-            {empresaFiltered ? " A latência é sempre global (não por empresa)." : ""}
+            {empresaFiltered ? " A espera é sempre global (não por empresa)." : ""}
           </p>
         </div>
       )}
@@ -1300,12 +1313,23 @@ function XmlPageContent() {
           className="min-w-[220px] flex-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm placeholder-gray-500 focus:border-rps-olive-dark focus:outline-none"
         />
         <div className="flex items-center gap-3 ml-auto">
+          {/* Apuração do filtro atual: contagem + soma dos valores (/notas/summary).
+              "Atualizando…" só quando a MUDANÇA é do usuário (isPlaceholderData);
+              o auto-refresh de fundo é silencioso. */}
           <span className="text-sm text-gray-500">
-            {list.isFetching ? (
+            {list.isPlaceholderData ? (
               "Atualizando…"
             ) : (
               <span title={fmtFull(total)}>
                 {fmtCompact(total)} nota{total === 1 ? "" : "s"}
+                {summary.data && (
+                  <>
+                    {" · "}
+                    <b className="text-gray-700 dark:text-gray-300" title={summary.data.valor_total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}>
+                      Total: {fmtBRL(summary.data.valor_total)}
+                    </b>
+                  </>
+                )}
               </span>
             )}
           </span>
@@ -1385,7 +1409,7 @@ function XmlPageContent() {
 
       {/* Tabela — envolta em relative para o overlay de loading */}
       <div className="relative">
-        <TableLoadingOverlay isFetching={list.isFetching && !list.isLoading} />
+        <TableLoadingOverlay isFetching={list.isPlaceholderData} />
       <Table stickyHeader>
         <THead sticky>
           {(
@@ -1394,11 +1418,13 @@ function XmlPageContent() {
               { key: "numero",   label: "Número" },
               { key: "tipo",     label: "Tipo" },
               { key: "emissao",  label: "Emissão", title: "Data de emissão da nota" },
+              { key: "cod",      label: "Cód.", title: "Código da empresa" },
               { key: "empresa",  label: "Empresa" },
               { key: "emitente", label: "Emitente" },
+              { key: "valor",    label: "Valor", title: "Valor total da nota" },
               { key: "status",   label: "Status" },
               { key: "evento",   label: "Último evento", title: "Data do evento mais recente (chegada, sincronização ou importação)" },
-            ] as { key: "chave"|"numero"|"tipo"|"emissao"|"empresa"|"emitente"|"status"|"evento"; label: string; title?: string }[]
+            ] as { key: NotasSortKey; label: string; title?: string }[]
           ).map(({ key, label, title }) => (
             <Th key={key} title={title}>
               <button
@@ -1428,6 +1454,24 @@ function XmlPageContent() {
               <Td className="font-mono text-xs text-gray-600 dark:text-gray-400">{n.numero_nota || "—"}</Td>
               <Td className="text-gray-700 dark:text-gray-300">{XML_DOC_TYPE_LABEL[n.doc_type]}</Td>
               <Td className="whitespace-nowrap text-gray-600 dark:text-gray-400">{fmtDateOnly(n.data_emissao)}</Td>
+              <Td className="text-xs text-gray-500">
+                {n.codigo_empresa != null ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSemEmpresa(false);
+                      setCodigoFilial(null);
+                      reset(setCodigoEmpresa)(n.codigo_empresa!);
+                    }}
+                    className="hover:text-rps-olive-dark hover:underline"
+                    title={n.nome_empresa || "Filtrar por esta empresa"}
+                  >
+                    #{n.codigo_empresa}
+                  </button>
+                ) : (
+                  "—"
+                )}
+              </Td>
               <Td className="max-w-[220px] truncate text-gray-700 dark:text-gray-300" title={n.nome_empresa}>
                 {n.codigo_empresa ? (
                   <button
@@ -1449,6 +1493,9 @@ function XmlPageContent() {
               <Td className="max-w-[220px] truncate text-gray-600 dark:text-gray-400" title={n.nome_emitente}>
                 {n.nome_emitente || n.cnpj_emitente || "—"}
               </Td>
+              <Td className="whitespace-nowrap text-right tabular-nums text-gray-700 dark:text-gray-300">
+                {n.valor_total != null ? fmtBRL(n.valor_total) : "—"}
+              </Td>
               <Td>
                 <span className="inline-flex flex-wrap items-center gap-1">
                   <Badge className={XML_STATUS_STYLE[n.status]}>{XML_STATUS_LABEL[n.status]}</Badge>
@@ -1460,12 +1507,12 @@ function XmlPageContent() {
             </Tr>
           ))}
           {list.isError && items.length === 0 && (
-            <ErrorRow colSpan={8} onRetry={() => list.refetch()} />
+            <ErrorRow colSpan={10} onRetry={() => list.refetch()} />
           )}
           {!list.isLoading && !list.isError && items.length === 0 && (
-            <EmptyRow colSpan={8}>Nenhuma nota encontrada com os filtros atuais.</EmptyRow>
+            <EmptyRow colSpan={10}>Nenhuma nota encontrada com os filtros atuais.</EmptyRow>
           )}
-          {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={8} />)}
+          {list.isLoading && Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} cols={10} />)}
         </TBody>
       </Table>
       </div>{/* /relative */}
@@ -2099,7 +2146,7 @@ function PainelView({
         )}
       </PainelCard>
 
-      <PainelCard title="Latências de processamento (30d)">
+      <PainelCard title="Espera de processamento (atual)">
         {error ? (
           <ErrorState onRetry={onRetry} />
         ) : loading ? (
@@ -2121,7 +2168,8 @@ function PainelView({
               <MiniStat label="Importadas hoje" value={ov?.imported_today ?? 0} tone="success" />
             </div>
             <p className="text-xs text-gray-400">
-              Percentis das transições dos últimos 30 dias; exclui backfill histórico.
+              Espera até a transição, incluindo notas ainda paradas (conta até agora) — sobe
+              conforme o backlog trava. Veja a distribuição por idade no card &quot;Idade do backlog&quot;.
             </p>
           </div>
         )}
@@ -2484,7 +2532,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
           )}
         </div>
         <span className="text-sm text-gray-500">
-          {search.trim() !== debounced || q.isFetching
+          {search.trim() !== debounced || q.isPlaceholderData
             ? "Buscando…"
             : `${empresaCount} empresa${empresaCount === 1 ? "" : "s"}`}
         </span>
@@ -2517,7 +2565,7 @@ function EmpresasView({ onDrill }: { onDrill: (row: EmpresaAgg, filters: DrillFi
         </span>
       </p>
       <div className="relative">
-        <TableLoadingOverlay isFetching={q.isFetching && !q.isLoading} />
+        <TableLoadingOverlay isFetching={q.isPlaceholderData} />
       <Table stickyHeader>
       <THead sticky>
         {/* Empresa também é ordenável (A→Z / Z→A) */}
@@ -2806,8 +2854,8 @@ function SlideResumo({ ov }: { ov?: Overview }) {
             {ov ? fmtCompact(ov.in_transit) : "—"} em trânsito
           </p>
         </div>
-        <BigLatency label="Chegada → sync (30d)" p50={ov?.lat_arrival_sync_p50_s} p95={ov?.lat_arrival_sync_p95_s} />
-        <BigLatency label="Sync → importação (30d)" p50={ov?.lat_sync_import_p50_s} p95={ov?.lat_sync_import_p95_s} />
+        <BigLatency label="Espera chegada → sync" p50={ov?.lat_arrival_sync_p50_s} p95={ov?.lat_arrival_sync_p95_s} />
+        <BigLatency label="Espera sync → importação" p50={ov?.lat_sync_import_p50_s} p95={ov?.lat_sync_import_p95_s} />
       </div>
     </div>
   );
@@ -2994,7 +3042,7 @@ function SlideMural({ ov, empresas, aging }: { ov?: Overview; empresas?: { items
         <MuralStat label="Ignoradas" value={ov?.import_ignored} />
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-4">
-        <MuralPanel title="Backlog & latências (30d)">
+        <MuralPanel title="Backlog & espera atual">
           <div className="flex h-full items-center gap-10">
             <div>
               <p className="text-xs uppercase tracking-wider text-gray-500">Backlog pendente</p>
