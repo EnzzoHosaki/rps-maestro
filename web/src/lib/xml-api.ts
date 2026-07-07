@@ -294,6 +294,18 @@ export interface PollerPayload {
   batch: number;
   sweep_interval_s: number;
   sweep_window_h: number;
+  version?: string;
+  // Reconciliação Athenas↔tracker (janela deslizante de 24h, renovada a cada
+  // ~30min). Campos ausentes = ciclo ainda não rodou / versão antiga do poller.
+  reconcile_at?: string;
+  reconcile_window_h?: number;
+  reconcile_athenas?: number; // notas importadas pelo Athenas na janela (verdade)
+  reconcile_tracker?: number; // dessas, quantas o tracker conhecia
+  reconcile_missing?: number; // divergência real (Athenas sim, tracker não)
+  reconcile_fixed?: number; // corrigidas pelo self-heal neste ciclo
+  reconcile_accuracy_pct?: number; // 100*(athenas-missing)/athenas (int ou float)
+  reconcile_missing_sample?: string[]; // até 5 chaves faltantes (só quando missing>0)
+  reconcile_error?: string; // só quando o último ciclo falhou
 }
 
 export interface AgentPayload {
@@ -303,6 +315,7 @@ export interface AgentPayload {
   novos: number;
   emitidos: number;
   sem_chave: number;
+  version?: string;
 }
 
 // Union discriminada por "service" — garante tipagem correta ao acessar payload.

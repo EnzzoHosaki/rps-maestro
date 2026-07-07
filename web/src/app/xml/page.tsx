@@ -11,6 +11,8 @@ import {
   notasApi,
   xmlMetricsApi,
   empresasApi,
+  xmlStatusApi,
+  type PollerPayload,
   XML_STATUS_LABEL,
   XML_STATUS_STYLE,
   XML_DOC_TYPE_LABEL,
@@ -428,6 +430,133 @@ function StatusGlossary() {
         ))}
       </ul>
     </div>
+  );
+}
+
+// ── Acurácia do import (reconciliação Athenas ↔ tracker, 24h) ─────────────────
+const ACCURACY_STALE_MS = 90 * 60 * 1000;
+
+// 2 casas só quando ≠ 100 ("100%" seco lê melhor que "100,00%").
+function fmtAccuracyPct(pct: number): string {
+  return pct >= 100 ? "100%" : `${pct.toFixed(2)}%`;
+}
+function fmtAgoMin(ms: number): string {
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "agora mesmo";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  const r = min % 60;
+  return r ? `há ${h}h ${r}min` : `há ${h}h`;
+}
+
+// Card de acurácia do import: lê o payload do poller no /status. Estados:
+// carregando / API-erro / stale / erro-de-ciclo / divergência / ok(+self-heal).
+function AccuracyCard() {
+  const [now, setNow] = useState(() => Date.now());
+  const [showSample, setShowSample] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const q = useQuery({
+    queryKey: ["xml", "status", "accuracy"],
+    queryFn: () => xmlStatusApi.get().then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+
+  const poller = q.data?.services.find((s) => s.service === "poller");
+  const p = poller?.payload as PollerPayload | undefined;
+  const reconcileAtMs = p?.reconcile_at ? new Date(p.reconcile_at).getTime() : null;
+  const hasReconcile = p != null && p.reconcile_athenas != null && reconcileAtMs != null;
+  // Stale: poller ausente/offline, sem campos de reconcile, ou medição velha (>90min).
+  const stale =
+    !q.isLoading &&
+    !q.isError &&
+    (!poller || !poller.online || !hasReconcile || (reconcileAtMs != null && now - reconcileAtMs > ACCURACY_STALE_MS));
+
+  const shell = (children: ReactNode) => (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Acurácia do import (24h)</p>
+        {hasReconcile && !stale && reconcileAtMs != null && (
+          <span className="text-[11px] text-gray-400">atualizado {fmtAgoMin(now - reconcileAtMs)}</span>
+        )}
+      </div>
+      <div className="mt-2">{children}</div>
+    </div>
+  );
+
+  if (q.isLoading) return shell(<Skeleton className="h-9 w-40" />);
+  if (q.isError) return shell(<ErrorState onRetry={() => q.refetch()} />);
+  if (stale) {
+    return shell(
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-2xl font-bold text-gray-400">Sem dados recentes</span>
+        {reconcileAtMs != null && <span className="text-xs text-gray-500">última medição {fmtAgoMin(now - reconcileAtMs)}</span>}
+      </div>,
+    );
+  }
+
+  const pd = p as PollerPayload;
+  if (pd.reconcile_error) {
+    return shell(
+      <div className="rounded border border-red-200 bg-red-50 p-2.5 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+        <b>Falha no último ciclo:</b> {pd.reconcile_error}
+      </div>,
+    );
+  }
+
+  const missing = pd.reconcile_missing ?? 0;
+  const fixed = pd.reconcile_fixed ?? 0;
+  const athenas = pd.reconcile_athenas ?? 0;
+  const pct = pd.reconcile_accuracy_pct ?? (athenas > 0 ? (100 * (athenas - missing)) / athenas : 100);
+  const sample = pd.reconcile_missing_sample ?? [];
+
+  if (missing > 0) {
+    const bad = pct < 99;
+    return shell(
+      <>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className={`inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full ${bad ? "bg-red-500" : "bg-amber-500"}`} aria-hidden />
+          <span className={`text-3xl font-bold ${bad ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>{fmtAccuracyPct(pct)}</span>
+          <span className="text-sm text-gray-500">faltam {fmtFull(missing)} de {fmtFull(athenas)} nota{athenas === 1 ? "" : "s"}</span>
+        </div>
+        {sample.length > 0 && (
+          <div className="mt-2">
+            <button type="button" onClick={() => setShowSample((v) => !v)} className="text-xs text-gray-500 hover:text-rps-olive-dark">
+              {showSample ? "Ocultar" : "Ver"} chaves faltantes ({sample.length})
+            </button>
+            {showSample && (
+              <ul className="mt-1.5 space-y-1">
+                {sample.map((k) => (
+                  <li key={k} className="flex items-center gap-1.5">
+                    <span className="truncate font-mono text-xs text-gray-600 dark:text-gray-400">{k}</span>
+                    <CopyButton text={k} label="chave" />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </>,
+    );
+  }
+
+  // OK (missing == 0) — com ou sem self-heal neste ciclo.
+  return shell(
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className="inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full bg-green-500" aria-hidden />
+      <span className="text-3xl font-bold text-green-700 dark:text-green-400">{fmtAccuracyPct(pct)}</span>
+      <span className="text-sm text-gray-500">{fmtFull(athenas)} nota{athenas === 1 ? "" : "s"} conferida{athenas === 1 ? "" : "s"} com o Athenas</span>
+      {fixed > 0 && (
+        <span
+          className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+          title="Self-heal: o tracker detectou e corrigiu sozinho a divergência neste ciclo"
+        >
+          {fmtFull(fixed)} corrigida{fixed === 1 ? "" : "s"} automaticamente neste ciclo
+        </span>
+      )}
+    </div>,
   );
 }
 
@@ -1162,6 +1291,8 @@ function XmlPageContent() {
         )}
         <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={cardsLoading} title="Notas marcadas como ignoradas — contagem de agora." />
       </div>
+      {/* Acurácia do import (reconciliação Athenas↔tracker, 24h) — data quality. */}
+      <AccuracyCard />
       {/* Manchete de saúde do processamento: backlog + latências com semáforo de
           SLA. Antes era um rodapé cinza pequeno — promovido a destaque porque é
           a informação de diagnóstico mais importante da tela. */}
