@@ -205,8 +205,11 @@ export default function XmlStatusPage() {
   }
   function svcSubtitle(svc?: ServiceStatus) {
     if (!svc) return "Aguardando primeiro sinal…";
-    if (!svc.online) return `Offline · último sinal ${fmtAgo(svc.seconds_ago)}`;
-    return `Online · ${fmtAgo(svc.seconds_ago)}`;
+    // Versão vem no payload (poller/agent) — mostra discreto quando presente.
+    const version = (svc.payload as { version?: string })?.version;
+    const ver = version ? ` · v${version}` : "";
+    if (!svc.online) return `Offline · último sinal ${fmtAgo(svc.seconds_ago)}${ver}`;
+    return `Online · ${fmtAgo(svc.seconds_ago)}${ver}`;
   }
 
   return (
