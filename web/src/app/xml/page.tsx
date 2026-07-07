@@ -325,7 +325,7 @@ function StatCard({
   return (
     <div
       title={title}
-      className={`rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm${title ? " cursor-help" : ""}`}
+      className={`rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 shadow-sm${title ? " cursor-help" : ""}`}
     >
       <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
       {loading ? (
@@ -475,7 +475,7 @@ function AccuracyCard() {
     (!poller || !poller.online || !hasReconcile || (reconcileAtMs != null && now - reconcileAtMs > ACCURACY_STALE_MS));
 
   const shell = (children: ReactNode) => (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm">
+    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Acurácia do import (24h)</p>
         {hasReconcile && !stale && reconcileAtMs != null && (
@@ -518,7 +518,7 @@ function AccuracyCard() {
       <>
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className={`inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full ${bad ? "bg-red-500" : "bg-amber-500"}`} aria-hidden />
-          <span className={`text-3xl font-bold ${bad ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>{fmtAccuracyPct(pct)}</span>
+          <span className={`text-2xl font-bold ${bad ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>{fmtAccuracyPct(pct)}</span>
           <span className="text-sm text-gray-500">faltam {fmtFull(missing)} de {fmtFull(athenas)} nota{athenas === 1 ? "" : "s"}</span>
         </div>
         {sample.length > 0 && (
@@ -546,7 +546,7 @@ function AccuracyCard() {
   return shell(
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
       <span className="inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full bg-green-500" aria-hidden />
-      <span className="text-3xl font-bold text-green-700 dark:text-green-400">{fmtAccuracyPct(pct)}</span>
+      <span className="text-2xl font-bold text-green-700 dark:text-green-400">{fmtAccuracyPct(pct)}</span>
       <span className="text-sm text-gray-500">{fmtFull(athenas)} nota{athenas === 1 ? "" : "s"} conferida{athenas === 1 ? "" : "s"} com o Athenas</span>
       {fixed > 0 && (
         <span
@@ -1291,47 +1291,50 @@ function XmlPageContent() {
         )}
         <StatCard label="Ignoradas" value={ov?.import_ignored ?? "—"} loading={cardsLoading} title="Notas marcadas como ignoradas — contagem de agora." />
       </div>
-      {/* Acurácia do import (reconciliação Athenas↔tracker, 24h) — data quality. */}
-      <AccuracyCard />
-      {/* Manchete de saúde do processamento: backlog + latências com semáforo de
-          SLA. Antes era um rodapé cinza pequeno — promovido a destaque porque é
-          a informação de diagnóstico mais importante da tela. */}
-      {ov && (
-        <div className="space-y-1">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Backlog pendente</p>
-              <div className="mt-1 flex items-baseline gap-2">
-                <span className="text-2xl font-bold text-gray-900 dark:text-gray-100" title={fmtFull(pendentes)}>
-                  {fmtCompact(pendentes)}
-                </span>
-                <span className="text-xs text-gray-400">notas no pipeline</span>
-              </div>
-              <p className="mt-0.5 text-xs text-gray-500">
-                <span title={fmtFull(ov.in_transit)}>{fmtCompact(ov.in_transit)}</span> em trânsito
-              </p>
+      {/* Saúde/qualidade do processamento numa linha só: backlog + acurácia do
+          import + as duas esperas (censuradas). Acurácia é independente do
+          overview (vem do /status), por isso a linha não é gated em `ov`. */}
+      <div className="space-y-1">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Backlog pendente</p>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-gray-900 dark:text-gray-100" title={ov ? fmtFull(pendentes) : undefined}>
+                {ov ? fmtCompact(pendentes) : "—"}
+              </span>
+              <span className="text-xs text-gray-400">notas no pipeline</span>
             </div>
-            <LatencyHealthTile
-              label={`Espera chegada → sync${empresaFiltered ? " (global)" : ""}`}
-              p50={ov.lat_arrival_sync_p50_s}
-              p95={ov.lat_arrival_sync_p95_s}
-            />
-            <LatencyHealthTile
-              label={`Espera sync → importação${empresaFiltered ? " (global)" : ""}`}
-              p50={ov.lat_sync_import_p50_s}
-              p95={ov.lat_sync_import_p95_s}
-            />
+            <p className="mt-0.5 text-xs text-gray-500">
+              {ov ? (
+                <>
+                  <span title={fmtFull(ov.in_transit)}>{fmtCompact(ov.in_transit)}</span> em trânsito
+                </>
+              ) : (
+                "—"
+              )}
+            </p>
           </div>
-          <p className="text-xs text-gray-400">
-            Pendentes = chegou + sincronizado + aguardando importação. Espera = tempo até a
-            transição, <b>incluindo as notas ainda paradas</b> (conta até agora) — sobe conforme o
-            backlog trava. SLA: <b className="font-medium text-green-700 dark:text-green-400">&lt;24h</b> ·{" "}
-            <b className="font-medium text-amber-700 dark:text-amber-400">24–72h</b> ·{" "}
-            <b className="font-medium text-red-700 dark:text-red-400">&gt;72h</b>.
-            {empresaFiltered ? " A espera é sempre global (não por empresa)." : ""}
-          </p>
+          <AccuracyCard />
+          <LatencyHealthTile
+            label={`Espera chegada → sync${empresaFiltered ? " (global)" : ""}`}
+            p50={ov?.lat_arrival_sync_p50_s}
+            p95={ov?.lat_arrival_sync_p95_s}
+          />
+          <LatencyHealthTile
+            label={`Espera sync → importação${empresaFiltered ? " (global)" : ""}`}
+            p50={ov?.lat_sync_import_p50_s}
+            p95={ov?.lat_sync_import_p95_s}
+          />
         </div>
-      )}
+        <p className="text-xs text-gray-400">
+          Pendentes = chegou + sincronizado + aguardando importação. Espera = tempo até a
+          transição, <b>incluindo as notas ainda paradas</b> (conta até agora) — sobe conforme o
+          backlog trava. SLA: <b className="font-medium text-green-700 dark:text-green-400">&lt;24h</b> ·{" "}
+          <b className="font-medium text-amber-700 dark:text-amber-400">24–72h</b> ·{" "}
+          <b className="font-medium text-red-700 dark:text-red-400">&gt;72h</b>.
+          {empresaFiltered ? " A espera é sempre global (não por empresa)." : ""}
+        </p>
+      </div>
 
       {/* Navegação entre visões — segmented control, propositalmente distinto
           dos chips de filtro (que são pills olive). Aqui é uma trilha cinza com
