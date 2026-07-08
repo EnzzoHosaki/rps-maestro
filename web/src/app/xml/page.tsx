@@ -28,6 +28,7 @@ import {
   type AgingBucket,
   type Timeseries,
   type TimeseriesRange,
+  type LatencyMetrics,
 } from "@/lib/xml-api";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import { Modal } from "@/components/ui/modal";
@@ -84,7 +85,7 @@ const STATUS_FILTERS: { value: NotaStatus | "all"; label: string }[] = [
   { value: "import_ignored", label: "Ignorada" },
 ];
 
-const DOC_TYPES: (DocType | "all")[] = ["all", "NFE", "NFCE", "CTE"];
+const DOC_TYPES: (DocType | "all")[] = ["all", "NFE", "NFCE", "CTE", "NFS"];
 
 // Contagem por status pro chip de filtro, reaproveitando o /metrics/overview
 // que já é buscado (zero backend novo). "all" = soma dos status filtráveis.
@@ -384,27 +385,95 @@ const SLA_VALUE: Record<SlaTone, string> = {
   crit: "text-red-700 dark:text-red-400",
   none: "text-gray-500",
 };
-const SLA_WORD: Record<SlaTone, string> = {
-  ok: "dentro do SLA",
-  warn: "atenção",
-  crit: "fora do SLA",
-  none: "sem dados",
-};
 
 // Tile de latência da manchete: p50 grande com cor de SLA + dot, p95 embaixo.
 // O p50 é a métrica que decide a cor (mediana = experiência típica).
-function LatencyHealthTile({ label, p50, p95 }: { label: string; p50?: number; p95?: number }) {
-  const tone = slaTone(p50);
-  return (
+// ── Latência do pipeline (endpoint novo /metrics/latency) ─────────────────────
+// Humanização pedida: <90min = minutos; <48h = horas; senão dias (1 casa).
+function fmtLatHuman(s: number): string {
+  if (s < 90 * 60) return `${Math.round(s / 60)} min`;
+  if (s < 48 * 3600) return `${Math.round(s / 3600)}h`;
+  return `${(s / 86400).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} dias`;
+}
+function fmtPct1(n: number): string {
+  return n.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+}
+
+// Dois tiles novos (fragmento p/ entrar na grade da manchete): fila de
+// sincronização (p50/p95 + mini-barras diárias) e importação pós-sync (%).
+function LatencyCards() {
+  const q = useQuery({
+    queryKey: ["xml", "latency", 7],
+    queryFn: () => xmlMetricsApi.latency(7).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+  const a2s = q.data?.arrival_to_sync;
+  const s2i = q.data?.sync_to_import;
+
+  const tile = (title: string, body: ReactNode) => (
     <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 shadow-sm">
-      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className={`inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full ${SLA_DOT[tone]}`} aria-hidden />
-        <span className={`text-2xl font-bold ${SLA_VALUE[tone]}`}>{fmtDur(p50)}</span>
-        <span className="text-xs text-gray-400">p50 · {SLA_WORD[tone]}</span>
-      </div>
-      <p className="mt-0.5 text-xs text-gray-500">p95 {fmtDur(p95)}</p>
+      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{title}</p>
+      <div className="mt-1">{body}</div>
     </div>
+  );
+
+  let body1: ReactNode;
+  if (q.isLoading) body1 = <Skeleton className="h-9 w-32" />;
+  else if (q.isError) body1 = <ErrorState onRetry={() => q.refetch()} />;
+  else if (!a2s || a2s.count === 0 || a2s.p50_s == null) body1 = <span className="text-sm text-gray-400">sem dados na janela</span>;
+  else {
+    const tone = slaTone(a2s.p50_s);
+    const daily = a2s.daily.filter((d) => d.p50_s != null);
+    const maxP50 = Math.max(1, ...daily.map((d) => d.p50_s as number));
+    body1 = (
+      <>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className={`inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full ${SLA_DOT[tone]}`} aria-hidden />
+          <span className={`text-2xl font-bold ${SLA_VALUE[tone]}`}>{fmtLatHuman(a2s.p50_s)}</span>
+          <span className="text-xs text-gray-500">p50 · p95: {a2s.p95_s != null ? fmtLatHuman(a2s.p95_s) : "—"}</span>
+        </div>
+        <p className="mt-0.5 text-xs text-gray-500">{fmtFull(a2s.count)} notas sincronizadas nos últimos 7 dias</p>
+        {daily.length > 1 && (
+          <div className="mt-2 flex h-6 items-end gap-0.5" aria-hidden>
+            {daily.map((d) => (
+              <div
+                key={d.date}
+                title={`${d.date}: p50 ${fmtLatHuman(d.p50_s as number)}`}
+                className="flex-1 rounded-sm bg-rps-sage-soft"
+                style={{ height: `${Math.max(4, ((d.p50_s as number) / maxP50) * 100)}%` }}
+              />
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  let body2: ReactNode;
+  if (q.isLoading) body2 = <Skeleton className="h-9 w-32" />;
+  else if (q.isError) body2 = <ErrorState onRetry={() => q.refetch()} />;
+  else if (!s2i || s2i.count === 0) body2 = <span className="text-sm text-gray-400">sem dados na janela</span>;
+  else {
+    const good = s2i.same_day_pct >= 95;
+    body2 = (
+      <>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className={`inline-block h-2.5 w-2.5 shrink-0 self-center rounded-full ${good ? "bg-green-500" : "bg-amber-500"}`} aria-hidden />
+          <span className={`text-2xl font-bold ${good ? "text-green-700 dark:text-green-400" : "text-amber-600 dark:text-amber-400"}`}>{fmtPct1(s2i.same_day_pct)}%</span>
+          <span className="text-xs text-gray-500">no mesmo dia</span>
+        </div>
+        <p className="mt-0.5 text-xs text-gray-500" title={`D+1: ${fmtFull(s2i.d1)} · D+2 ou mais: ${fmtFull(s2i.d2_plus)} de ${fmtFull(s2i.count)}`}>
+          D+1: {fmtFull(s2i.d1)} · D+2+: {fmtFull(s2i.d2_plus)} de {fmtFull(s2i.count)}
+        </p>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {tile("Fila de sincronização (7d)", body1)}
+      {tile("Importação pós-sync (7d)", body2)}
+    </>
   );
 }
 
@@ -1315,24 +1384,17 @@ function XmlPageContent() {
             </p>
           </div>
           <AccuracyCard />
-          <LatencyHealthTile
-            label={`Espera chegada → sync${empresaFiltered ? " (global)" : ""}`}
-            p50={ov?.lat_arrival_sync_p50_s}
-            p95={ov?.lat_arrival_sync_p95_s}
-          />
-          <LatencyHealthTile
-            label={`Espera sync → importação${empresaFiltered ? " (global)" : ""}`}
-            p50={ov?.lat_sync_import_p50_s}
-            p95={ov?.lat_sync_import_p95_s}
-          />
+          {/* Latência do pipeline via endpoint novo /metrics/latency (os lat_*
+              do overview foram removidos). Rende 2 tiles: fila de sync + import
+              pós-sync. */}
+          <LatencyCards />
         </div>
         <p className="text-xs text-gray-400">
-          Pendentes = chegou + sincronizado + aguardando importação. Espera = tempo até a
-          transição, <b>incluindo as notas ainda paradas</b> (conta até agora) — sobe conforme o
-          backlog trava. SLA: <b className="font-medium text-green-700 dark:text-green-400">&lt;24h</b> ·{" "}
+          Pendentes = chegou + sincronizado + aguardando importação. Fila de sincronização =
+          espera do programa que move Xml_ASincronizar → SINCRONIZADO (últimos 7d). SLA do p50:{" "}
+          <b className="font-medium text-green-700 dark:text-green-400">&lt;24h</b> ·{" "}
           <b className="font-medium text-amber-700 dark:text-amber-400">24–72h</b> ·{" "}
           <b className="font-medium text-red-700 dark:text-red-400">&gt;72h</b>.
-          {empresaFiltered ? " A espera é sempre global (não por empresa)." : ""}
         </p>
       </div>
 
@@ -2202,6 +2264,12 @@ function PainelView({
     queryFn: () => xmlMetricsApi.aging().then((r) => r.data),
     refetchInterval: 60_000,
   });
+  // Latência do pipeline (endpoint novo). Mesma chave da manchete → cache compartilhado.
+  const latency = useQuery({
+    queryKey: ["xml", "latency", 7],
+    queryFn: () => xmlMetricsApi.latency(7).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
 
   // "imported" fica FORA das barras: é ordens de grandeza maior (milhões de
   // notas terminais) e achataria as demais. Plotamos o resto e mostramos o
@@ -2280,30 +2348,36 @@ function PainelView({
         )}
       </PainelCard>
 
-      <PainelCard title="Espera de processamento (atual)">
-        {error ? (
-          <ErrorState onRetry={onRetry} />
-        ) : loading ? (
+      <PainelCard title="Latência do pipeline (7d)">
+        {latency.isError ? (
+          <ErrorState onRetry={() => latency.refetch()} />
+        ) : latency.isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : (
           <div className="space-y-4">
             <LatencyRow
-              label="Chegada → Sincronização"
-              p50={ov?.lat_arrival_sync_p50_s}
-              p95={ov?.lat_arrival_sync_p95_s}
+              label="Fila de sincronização (chegada → sync)"
+              p50={latency.data?.arrival_to_sync.p50_s ?? undefined}
+              p95={latency.data?.arrival_to_sync.p95_s ?? undefined}
             />
-            <LatencyRow
-              label="Sincronização → Importação"
-              p50={ov?.lat_sync_import_p50_s}
-              p95={ov?.lat_sync_import_p95_s}
-            />
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-600 dark:text-gray-400">Importação pós-sync</p>
+              {latency.data && latency.data.sync_to_import.count > 0 ? (
+                <p className="text-sm text-gray-500">
+                  <b className="text-gray-800 dark:text-gray-200">{fmtPct1(latency.data.sync_to_import.same_day_pct)}%</b> no mesmo dia
+                  {" · "}D+1: {fmtFull(latency.data.sync_to_import.d1)} · D+2+: {fmtFull(latency.data.sync_to_import.d2_plus)} de {fmtFull(latency.data.sync_to_import.count)}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400">sem dados na janela</p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3 pt-1">
               <MiniStat label="Em trânsito" value={ov?.in_transit ?? 0} />
               <MiniStat label="Importadas hoje" value={ov?.imported_today ?? 0} tone="success" />
             </div>
             <p className="text-xs text-gray-400">
-              Espera até a transição, incluindo notas ainda paradas (conta até agora) — sobe
-              conforme o backlog trava. Veja a distribuição por idade no card &quot;Idade do backlog&quot;.
+              Fila de sincronização = espera do programa que move os XML (últimos 7 dias).
+              Distribuição por idade do backlog no card &quot;Idade do backlog&quot;.
             </p>
           </div>
         )}
@@ -2954,23 +3028,13 @@ function BigStat({ label, value, accent }: { label: string; value?: number; acce
   );
 }
 
-function BigLatency({ label, p50, p95 }: { label: string; p50?: number; p95?: number }) {
-  const tone = slaTone(p50);
-  return (
-    <div className="flex flex-col justify-center rounded-xl border border-gray-800 bg-gray-900 p-6">
-      <p className="text-sm uppercase tracking-wider text-gray-400">{label}</p>
-      <div className="mt-2 flex items-baseline gap-3">
-        <span className={`h-4 w-4 shrink-0 self-center rounded-full ${SLA_DOT[tone]}`} aria-hidden />
-        <span className={`text-5xl font-bold ${SLA_VALUE[tone]}`}>{fmtDur(p50)}</span>
-        <span className="text-base text-gray-400">p50 · {SLA_WORD[tone]}</span>
-      </div>
-      <p className="mt-1 text-base text-gray-500">p95 {fmtDur(p95)}</p>
-    </div>
-  );
-}
 
-function SlideResumo({ ov }: { ov?: Overview }) {
+function SlideResumo({ ov, latency }: { ov?: Overview; latency?: LatencyMetrics }) {
   const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import : 0;
+  const a2s = latency?.arrival_to_sync;
+  const s2i = latency?.sync_to_import;
+  const t1 = a2s && a2s.count > 0 && a2s.p50_s != null ? slaTone(a2s.p50_s) : "none";
+  const good2 = !!s2i && s2i.same_day_pct >= 95;
   return (
     <div className="flex h-full flex-col justify-center gap-5">
       <div className="grid grid-cols-5 gap-4">
@@ -2988,8 +3052,36 @@ function SlideResumo({ ov }: { ov?: Overview }) {
             {ov ? fmtCompact(ov.in_transit) : "—"} em trânsito
           </p>
         </div>
-        <BigLatency label="Espera chegada → sync" p50={ov?.lat_arrival_sync_p50_s} p95={ov?.lat_arrival_sync_p95_s} />
-        <BigLatency label="Espera sync → importação" p50={ov?.lat_sync_import_p50_s} p95={ov?.lat_sync_import_p95_s} />
+        <div className="flex flex-col justify-center rounded-xl border border-gray-800 bg-gray-900 p-6">
+          <p className="text-sm uppercase tracking-wider text-gray-400">Fila de sincronização (7d)</p>
+          {a2s && a2s.count > 0 && a2s.p50_s != null ? (
+            <>
+              <div className="mt-2 flex items-baseline gap-3">
+                <span className={`h-4 w-4 shrink-0 self-center rounded-full ${SLA_DOT[t1]}`} aria-hidden />
+                <span className={`text-5xl font-bold ${SLA_VALUE[t1]}`}>{fmtLatHuman(a2s.p50_s)}</span>
+                <span className="text-base text-gray-400">p50 · p95: {a2s.p95_s != null ? fmtLatHuman(a2s.p95_s) : "—"}</span>
+              </div>
+              <p className="mt-1 text-base text-gray-500">{fmtFull(a2s.count)} sincronizadas em 7 dias</p>
+            </>
+          ) : (
+            <p className="mt-2 text-3xl font-bold text-gray-500">sem dados</p>
+          )}
+        </div>
+        <div className="flex flex-col justify-center rounded-xl border border-gray-800 bg-gray-900 p-6">
+          <p className="text-sm uppercase tracking-wider text-gray-400">Importação pós-sync (7d)</p>
+          {s2i && s2i.count > 0 ? (
+            <>
+              <div className="mt-2 flex items-baseline gap-3">
+                <span className={`h-4 w-4 shrink-0 self-center rounded-full ${good2 ? "bg-green-500" : "bg-amber-500"}`} aria-hidden />
+                <span className={`text-5xl font-bold ${good2 ? "text-green-400" : "text-amber-400"}`}>{fmtPct1(s2i.same_day_pct)}%</span>
+                <span className="text-base text-gray-400">no mesmo dia</span>
+              </div>
+              <p className="mt-1 text-base text-gray-500">D+1: {fmtFull(s2i.d1)} · D+2+: {fmtFull(s2i.d2_plus)} de {fmtFull(s2i.count)}</p>
+            </>
+          ) : (
+            <p className="mt-2 text-3xl font-bold text-gray-500">sem dados</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -3132,20 +3224,6 @@ function MuralStat({ label, value, accent }: { label: string; value?: number; ac
   );
 }
 
-function MuralLat({ label, p50, p95 }: { label: string; p50?: number; p95?: number }) {
-  const tone = slaTone(p50);
-  return (
-    <div>
-      <p className="text-xs uppercase tracking-wider text-gray-500">{label}</p>
-      <div className="flex items-baseline gap-2">
-        <span className={`h-2.5 w-2.5 shrink-0 self-center rounded-full ${SLA_DOT[tone]}`} aria-hidden />
-        <span className={`text-2xl font-bold ${SLA_VALUE[tone]}`}>{fmtDur(p50)}</span>
-        <span className="text-xs text-gray-500">p50 · p95 {fmtDur(p95)}</span>
-      </div>
-    </div>
-  );
-}
-
 function MuralPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-5">
@@ -3155,8 +3233,10 @@ function MuralPanel({ title, children }: { title: string; children: ReactNode })
   );
 }
 
-function SlideMural({ ov, empresas, aging }: { ov?: Overview; empresas?: { items: EmpresaAgg[] }; aging?: Aging }) {
+function SlideMural({ ov, empresas, aging, latency }: { ov?: Overview; empresas?: { items: EmpresaAgg[] }; aging?: Aging; latency?: LatencyMetrics }) {
   const pendentes = ov ? ov.arrived + ov.synced + ov.pending_import : 0;
+  const a2s = latency?.arrival_to_sync;
+  const s2i = latency?.sync_to_import;
   const bars = PAINEL_STATUSES.filter((s) => s !== "imported");
   const counts = ov ? bars.map((s) => ({ status: s, count: statusCount(ov, s) })) : [];
   const maxC = Math.max(1, ...counts.map((c) => c.count));
@@ -3176,7 +3256,7 @@ function SlideMural({ ov, empresas, aging }: { ov?: Overview; empresas?: { items
         <MuralStat label="Ignoradas" value={ov?.import_ignored} />
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-4">
-        <MuralPanel title="Backlog & espera atual">
+        <MuralPanel title="Backlog & latência (7d)">
           <div className="flex h-full items-center gap-10">
             <div>
               <p className="text-xs uppercase tracking-wider text-gray-500">Backlog pendente</p>
@@ -3184,8 +3264,30 @@ function SlideMural({ ov, empresas, aging }: { ov?: Overview; empresas?: { items
               <p className="mt-1 text-sm text-gray-500">{ov ? fmtCompact(ov.in_transit) : "—"} em trânsito</p>
             </div>
             <div className="space-y-4">
-              <MuralLat label="Chegada → sync" p50={ov?.lat_arrival_sync_p50_s} p95={ov?.lat_arrival_sync_p95_s} />
-              <MuralLat label="Sync → importação" p50={ov?.lat_sync_import_p50_s} p95={ov?.lat_sync_import_p95_s} />
+              <div>
+                <p className="text-xs uppercase tracking-wider text-gray-500">Fila de sincronização</p>
+                {a2s && a2s.count > 0 && a2s.p50_s != null ? (
+                  <div className="flex items-baseline gap-2">
+                    <span className={`h-2.5 w-2.5 shrink-0 self-center rounded-full ${SLA_DOT[slaTone(a2s.p50_s)]}`} aria-hidden />
+                    <span className={`text-2xl font-bold ${SLA_VALUE[slaTone(a2s.p50_s)]}`}>{fmtLatHuman(a2s.p50_s)}</span>
+                    <span className="text-xs text-gray-500">p50 · p95 {a2s.p95_s != null ? fmtLatHuman(a2s.p95_s) : "—"}</span>
+                  </div>
+                ) : (
+                  <p className="text-xl font-bold text-gray-500">sem dados</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-gray-500">Importação pós-sync</p>
+                {s2i && s2i.count > 0 ? (
+                  <div className="flex items-baseline gap-2">
+                    <span className={`h-2.5 w-2.5 shrink-0 self-center rounded-full ${s2i.same_day_pct >= 95 ? "bg-green-500" : "bg-amber-500"}`} aria-hidden />
+                    <span className={`text-2xl font-bold ${s2i.same_day_pct >= 95 ? "text-green-400" : "text-amber-400"}`}>{fmtPct1(s2i.same_day_pct)}%</span>
+                    <span className="text-xs text-gray-500">no mesmo dia</span>
+                  </div>
+                ) : (
+                  <p className="text-xl font-bold text-gray-500">sem dados</p>
+                )}
+              </div>
             </div>
           </div>
         </MuralPanel>
@@ -3236,6 +3338,7 @@ function PresentationMode({ initialMode, onClose }: { initialMode: "slides" | "m
   const empresas = useQuery({ queryKey: ["xml", "empresas", "painel"], queryFn: () => empresasApi.list({ limit: 0 }).then((r) => r.data), refetchInterval: 30_000 });
   const aging = useQuery({ queryKey: ["xml", "aging", "painel"], queryFn: () => xmlMetricsApi.aging().then((r) => r.data), refetchInterval: 60_000 });
   const ts = useQuery({ queryKey: ["xml", "timeseries", "30d"], queryFn: () => xmlMetricsApi.timeseries("30d", "day").then((r) => r.data), refetchInterval: 60_000 });
+  const latency = useQuery({ queryKey: ["xml", "latency", 7], queryFn: () => xmlMetricsApi.latency(7).then((r) => r.data), refetchInterval: 60_000 });
 
   const [mode, setMode] = useState<"slides" | "mural">(initialMode);
   const [slide, setSlide] = useState(0);
@@ -3313,9 +3416,9 @@ function PresentationMode({ initialMode, onClose }: { initialMode: "slides" | "m
         {erroredAll ? (
           <div className="flex h-full items-center justify-center text-3xl text-gray-500">Rastreador indisponível — reconectando…</div>
         ) : mode === "mural" ? (
-          <SlideMural ov={ov} empresas={empresas.data} aging={aging.data} />
+          <SlideMural ov={ov} empresas={empresas.data} aging={aging.data} latency={latency.data} />
         ) : slide === 0 ? (
-          <SlideResumo ov={ov} />
+          <SlideResumo ov={ov} latency={latency.data} />
         ) : slide === 1 ? (
           <SlideStatus ov={ov} />
         ) : slide === 2 ? (

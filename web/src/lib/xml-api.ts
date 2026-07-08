@@ -139,6 +139,36 @@ export interface AgingFilter {
   direction?: Direction;
 }
 
+// Latência do pipeline (GET /metrics/latency?days=). Substitui os lat_* do
+// overview (removidos). Valores em SEGUNDOS. p50_s/p95_s = null quando count=0.
+export interface LatencyDailyPoint {
+  date: string; // YYYY-MM-DD
+  count: number;
+  p50_s: number | null;
+  p95_s: number | null;
+}
+export interface LatencyMetrics {
+  days: number;
+  tz: string;
+  // Espera na fila de sincronização (chegada → sincronizado), em segundos.
+  arrival_to_sync: {
+    count: number;
+    p50_s: number | null;
+    p95_s: number | null;
+    daily: LatencyDailyPoint[];
+  };
+  // Importação pós-sync: distribuição por dias (resolução diária).
+  sync_to_import: {
+    count: number;
+    same_day: number;
+    d1: number;
+    d2_plus: number;
+    same_day_pct: number;
+    d1_pct: number;
+    d2_plus_pct: number;
+  };
+}
+
 export interface EmpresaAgg {
   // Ausentes (omitempty) na linha "Sem empresa" — detectar com `codigo_empresa == null`.
   codigo_empresa?: number;
@@ -244,6 +274,10 @@ export const xmlMetricsApi = {
   },
   timeseries: (range: TimeseriesRange = "30d", bucket: TimeseriesBucket = "day") =>
     xmlApi.get<Timeseries>("/metrics/timeseries", { params: { range, bucket } }),
+  // Latência do pipeline (endpoint novo, substitui os campos lat_* do overview
+  // que agora vêm null). days = 1..90, default 7.
+  latency: (days = 7) =>
+    xmlApi.get<LatencyMetrics>("/metrics/latency", { params: { days } }),
 };
 
 export const empresasApi = {
