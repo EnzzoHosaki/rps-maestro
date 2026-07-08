@@ -2964,14 +2964,20 @@ function NotaDetailModal({ chave, onClose }: { chave: string; onClose: () => voi
             {data.spans.length === 0 && <li className="text-sm text-gray-500">Sem eventos.</li>}
             {data.spans.map((s, i) => {
               const l = spanLabels(s);
+              const path = s.file_path_rede || s.file_path;
               return (
-                <li key={i} className="relative">
+                <li key={i} className="group relative">
                   <span className="absolute -left-[23px] top-1 h-2.5 w-2.5 rounded-full bg-rps-olive-dark" />
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
                     {l.stage} <span className="text-xs font-normal text-gray-500">· {l.event}</span>
                   </p>
                   <p className="text-xs text-gray-500">{fmtTs(s.observed_at)} · {s.source}</p>
-                  {s.file_path && <p className="break-all text-[11px] text-gray-400">{s.file_path}</p>}
+                  {path && (
+                    <div className="flex items-start gap-1">
+                      <p className="break-all text-[11px] text-gray-400">{path}</p>
+                      <CopyButton text={path} label="caminho" />
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -75,6 +75,7 @@ export interface Span {
   observed_at: string;
   source: string;
   file_path?: string;
+  file_path_rede?: string;
 }
 
 export interface NotaDetail extends Nota {
