@@ -174,8 +174,12 @@ function FreshnessIndicator({
 }
 
 // Copia texto para a área de transferência. navigator.clipboard só funciona em
-// HTTPS; usa o fallback de execCommand em HTTP (produção interna).
-function copyText(text: string): Promise<void> {
+// HTTPS; usa o fallback de execCommand em HTTP (produção interna). O textarea
+// temporário do fallback entra dentro de `host` (não sempre document.body):
+// diálogos Radix (Modal) fazem focus-trap e puxam o foco de volta pra dentro
+// do Dialog.Content se ele "escapa" pra um elemento fora da subtree — o que
+// quebra o .focus()/execCommand se o textarea nascer direto no body.
+function copyText(text: string, host: HTMLElement = document.body): Promise<void> {
   if (typeof navigator !== "undefined" && navigator.clipboard) {
     return navigator.clipboard.writeText(text);
   }
@@ -183,7 +187,7 @@ function copyText(text: string): Promise<void> {
     const el = document.createElement("textarea");
     el.value = text;
     el.style.cssText = "position:fixed;top:0;left:0;opacity:0";
-    document.body.appendChild(el);
+    host.appendChild(el);
     el.focus();
     el.select();
     try {
@@ -191,7 +195,7 @@ function copyText(text: string): Promise<void> {
     } catch (e) {
       reject(e);
     } finally {
-      document.body.removeChild(el);
+      host.removeChild(el);
     }
   });
 }
@@ -234,9 +238,9 @@ function TableLoadingOverlay({ isFetching }: { isFetching: boolean }) {
 // Botão de copiar (ação passiva). Mostra "Copiado" por ~1.5s após sucesso.
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
-  const copy = (e: React.MouseEvent) => {
+  const copy = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    copyText(text)
+    copyText(text, e.currentTarget.parentElement ?? document.body)
       .then(() => {
         setDone(true);
         setTimeout(() => setDone(false), 1500);
